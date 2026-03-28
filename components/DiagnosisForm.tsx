@@ -12,6 +12,39 @@ import type {
 import { MODE_CONFIG } from "@/lib/modes";
 import DiagnosisResult from "./DiagnosisResult";
 
+// ─── initial_fees ウィザード 型定義 ──────────────────────────────────────────
+
+type IfSituation = "" | "pre_estimate" | "pre_sign" | "pre_payment" | "paid";
+type IfConcernTheme =
+  | ""
+  | "overall"
+  | "agency"
+  | "optional"
+  | "key"
+  | "cleaning"
+  | "guarantor"
+  | "unknown";
+
+export interface InitialFeesMeta {
+  situation: IfSituation;
+  concernTheme: IfConcernTheme;
+}
+
+function getIfFeedback2(explanation: string, concernTheme: string, fees: string[]): string {
+  if (explanation === "no") {
+    if (fees.includes("agency_fee")) return "仲介手数料について説明を受けていない点が重要な確認ポイントです。";
+    if (fees.includes("cleaning") || fees.includes("key_exchange")) return "オプション費用の説明がなかった点が重要なポイントです。";
+    return "説明を受けていない費用については、根拠の確認が特に重要です。";
+  }
+  if (explanation === "insufficient") {
+    if (concernTheme === "optional" || fees.includes("cleaning") || fees.includes("key_exchange")) {
+      return "任意オプションの説明が不十分だった点が重要なポイントになります。";
+    }
+    return "費用の根拠・算出方法の確認が次のステップになります。";
+  }
+  return "書面での確認記録を残しておくと、後から参照できて安心です。";
+}
+
 // ─── 共通UIパーツ ────────────────────────────────────────────────────────
 
 function Label({ children }: { children: React.ReactNode }) {
@@ -214,6 +247,12 @@ export default function DiagnosisForm() {
   const [error, setError] = useState<string | null>(null);
   const [feeError, setFeeError] = useState(false);
 
+  // ─── initial_fees ウィザード状態 ─────────────────────────────────────────
+  const [ifStep, setIfStep] = useState(1);
+  const [ifSituation, setIfSituation] = useState<IfSituation>("");
+  const [ifConcernTheme, setIfConcernTheme] = useState<IfConcernTheme>("");
+  const [submittedIfMeta, setSubmittedIfMeta] = useState<InitialFeesMeta | null>(null);
+
   function set<K extends keyof AllModesForm>(key: K, value: AllModesForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
@@ -248,6 +287,11 @@ export default function DiagnosisForm() {
     setResult(null);
     setError(null);
     setFeeError(false);
+    // Reset initial_fees wizard
+    setIfStep(1);
+    setIfSituation("");
+    setIfConcernTheme("");
+    setSubmittedIfMeta(null);
   }
 
   function buildPayload() {
@@ -257,15 +301,15 @@ export default function DiagnosisForm() {
       case "initial_fees":
         return {
           mode: "initial_fees",
-          contractType: form.contractType,
-          phase: form.phase,
+          contractType: "unknown" as const,
+          phase: "move_in" as const,
           fees: form.fees,
           ...(form.amountStr ? { amount: Number(form.amountStr) } : {}),
           contractMention: form.contractMention,
           explanation: form.explanation,
-          consentStructure: form.consentStructure,
+          consentStructure: (form.explanation !== "yes" ? "unknown" : "yes") as "yes" | "unknown",
           managementIssues: form.managementIssues,
-          freeText: form.freeText,
+          freeText: "",
           emailTone: form.emailTone,
         };
       case "renewal":
@@ -373,6 +417,9 @@ export default function DiagnosisForm() {
         return;
       }
       setResult(data);
+      if (selectedMode === "initial_fees") {
+        setSubmittedIfMeta({ situation: ifSituation, concernTheme: ifConcernTheme });
+      }
       try {
         localStorage.setItem("rental_diagnosis_result_v1", JSON.stringify(data));
       } catch {
@@ -439,108 +486,289 @@ export default function DiagnosisForm() {
             </span>
           </div>
 
-          {/* ── Mode 1: 初期費用チェック ── */}
+          {/* ── Mode 1: 初期費用チェック（ウィザード形式）── */}
           {selectedMode === "initial_fees" && (
-            <>
-              <div>
-                <Label>契約種別</Label>
-                <RadioGroup
-                  value={form.contractType}
-                  onChange={(v) => set("contractType", v)}
-                  options={[
-                    { value: "ordinary", label: "普通借家" },
-                    { value: "fixed_term", label: "定期借家" },
-                    { value: "unknown", label: "不明" },
-                  ]}
-                />
-                <HelpText>契約書の表紙や冒頭部分で確認できます</HelpText>
-              </div>
-
-              <div>
-                <Label>請求されている費用（複数選択可）</Label>
-                <div className="flex flex-wrap gap-2">
-                  {FEE_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => toggleFee(opt.value)}
-                      className={`px-4 py-2 rounded-lg text-sm border transition-all ${
-                        form.fees.includes(opt.value)
-                          ? "bg-slate-800 text-white border-slate-800"
-                          : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+            <div className="space-y-5">
+              {/* プログレスバー */}
+              <div className="flex gap-1">
+                {Array.from({ length: ifSituation === "paid" ? 6 : 7 }).map((_, i) => {
+                  const displayStep = ifStep > 5 && ifSituation === "paid" ? ifStep - 1 : ifStep;
+                  return (
+                    <div
+                      key={i}
+                      className={`h-1 flex-1 rounded-full transition-colors ${
+                        i < displayStep ? "bg-slate-700" : "bg-slate-200"
                       }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
+                    />
+                  );
+                })}
+              </div>
+
+              {/* Step 1: 状況 */}
+              {ifStep === 1 && (
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700">今のご状況を教えてください</p>
+                    <p className="text-xs text-slate-400 mt-1">回答に応じて、関係する質問だけをお聞きします</p>
+                  </div>
+                  <div className="space-y-2">
+                    {[
+                      { value: "pre_estimate" as IfSituation, label: "見積書を確認している段階", sub: "まだ支払っていない" },
+                      { value: "pre_sign" as IfSituation, label: "申込中・契約直前", sub: "署名前、まだ支払っていない" },
+                      { value: "pre_payment" as IfSituation, label: "契約済みで、請求が来ている", sub: "まだ支払っていない" },
+                      { value: "paid" as IfSituation, label: "もう支払い済み", sub: "領収書・明細を確認したい" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => { setIfSituation(opt.value); setIfStep(2); }}
+                        className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white hover:border-slate-400 hover:bg-slate-50 transition-all"
+                      >
+                        <span className="block text-sm font-medium text-slate-700">{opt.label}</span>
+                        <span className="block text-xs text-slate-400 mt-0.5">{opt.sub}</span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                {feeError && (
-                  <p className="text-red-500 text-xs mt-2">費用を1つ以上選択してください</p>
-                )}
-              </div>
+              )}
 
-              <div>
-                <Label>請求総額（任意）</Label>
-                <div className="relative w-48">
-                  <input
-                    type="number"
-                    value={form.amountStr}
-                    onChange={(e) => set("amountStr", e.target.value)}
-                    placeholder="例: 150000"
-                    min={0}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
-                  />
-                  <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
+              {/* Step 2: 気になる点 */}
+              {ifStep === 2 && (
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-slate-700">一番気になることを教えてください</p>
+                  <div className="space-y-2">
+                    {[
+                      { value: "overall" as IfConcernTheme, label: "全体的に高い気がする", fees: [] as FeeType[] },
+                      { value: "agency" as IfConcernTheme, label: "仲介手数料が気になる", fees: ["agency_fee"] as FeeType[] },
+                      { value: "optional" as IfConcernTheme, label: "任意かどうかわからない費用がある", fees: ["key_exchange", "cleaning"] as FeeType[] },
+                      { value: "key" as IfConcernTheme, label: "鍵交換代が気になる", fees: ["key_exchange"] as FeeType[] },
+                      { value: "cleaning" as IfConcernTheme, label: "クリーニング費が気になる", fees: ["cleaning"] as FeeType[] },
+                      { value: "guarantor" as IfConcernTheme, label: "保証会社費用が気になる", fees: ["guarantor"] as FeeType[] },
+                      { value: "unknown" as IfConcernTheme, label: "よくわからないがなんか多い", fees: [] as FeeType[] },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setIfConcernTheme(opt.value);
+                          if (opt.fees.length > 0) set("fees", opt.fees);
+                          setIfStep(3);
+                        }}
+                        className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition-all"
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              <div>
-                <Label>費用について契約書・重要事項説明書への記載</Label>
-                <RadioGroup
-                  value={form.contractMention}
-                  onChange={(v) => set("contractMention", v)}
-                  options={[
-                    { value: "yes", label: "記載がある" },
-                    { value: "unknown", label: "確認できていない / 不明" },
-                  ]}
-                />
-              </div>
+              {/* Step 3: 費用選択 + フィードバック1 */}
+              {ifStep === 3 && (
+                <div className="space-y-4">
+                  <div className="bg-sky-50 border border-sky-100 rounded-xl px-4 py-3">
+                    <p className="text-sm text-sky-800 leading-relaxed">
+                      {ifSituation === "paid"
+                        ? "支払済みなので、明細・書類の整理が重要なポイントになります。"
+                        : ifSituation === "pre_estimate"
+                        ? "まだ見積もり段階なので、費用の確認・調整がしやすい状況です。"
+                        : "まだ支払い前なので、確認・調整の余地があります。"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-slate-700 mb-2">請求されている費用（複数選択可）</p>
+                    <div className="flex flex-wrap gap-2">
+                      {FEE_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => toggleFee(opt.value)}
+                          className={`px-4 py-2 rounded-lg text-sm border transition-all ${
+                            form.fees.includes(opt.value)
+                              ? "bg-slate-800 text-white border-slate-800"
+                              : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    {feeError && <p className="text-red-500 text-xs mt-2">費用を1つ以上選択してください</p>}
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1.5">請求総額（任意）</p>
+                    <div className="relative w-44">
+                      <input
+                        type="number"
+                        value={form.amountStr}
+                        onChange={(e) => set("amountStr", e.target.value)}
+                        placeholder="例: 150000"
+                        min={0}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
+                      />
+                      <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (form.fees.length === 0) { setFeeError(true); return; }
+                      setFeeError(false);
+                      setIfStep(4);
+                    }}
+                    className="w-full py-3 rounded-xl bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 transition-all"
+                  >
+                    次へ →
+                  </button>
+                </div>
+              )}
 
-              <div>
-                <Label>費用についての説明</Label>
-                <RadioGroup
-                  value={form.explanation}
-                  onChange={(v) => set("explanation", v)}
-                  options={[
-                    { value: "yes", label: "十分な説明を受けた" },
-                    { value: "insufficient", label: "説明が不十分" },
-                    { value: "no", label: "説明を受けていない" },
-                  ]}
-                />
-              </div>
+              {/* Step 4: 状況別の深掘り質問 */}
+              {ifStep === 4 && (
+                <div className="space-y-3">
+                  {ifSituation === "paid" ? (
+                    <>
+                      <p className="text-sm font-semibold text-slate-700">明細書・領収書・契約書はお手元にありますか？</p>
+                      <div className="space-y-2">
+                        {[
+                          { label: "ある（または手に入れられる）", mention: "yes" as const },
+                          { label: "ない / わからない", mention: "unknown" as const },
+                        ].map((opt) => (
+                          <button
+                            key={opt.mention}
+                            type="button"
+                            onClick={() => { set("contractMention", opt.mention); setIfStep(5); }}
+                            className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition-all"
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-semibold text-slate-700">費用の支払いを急かされましたか？</p>
+                      <div className="space-y-2">
+                        {[
+                          { label: "急かされた・断りにくい雰囲気だった", pressured: true },
+                          { label: "特になかった", pressured: false },
+                        ].map((opt) => (
+                          <button
+                            key={String(opt.pressured)}
+                            type="button"
+                            onClick={() => { set("managementIssues", opt.pressured); setIfStep(5); }}
+                            className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition-all"
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
-              <div>
-                <Label>費用への同意の経緯</Label>
-                <RadioGroup
-                  value={form.consentStructure}
-                  onChange={(v) => set("consentStructure", v)}
-                  options={[
-                    { value: "yes", label: "明確に同意した" },
-                    { value: "unknown", label: "不明・記憶にない" },
-                  ]}
-                />
-              </div>
+              {/* Step 5: 説明の質 */}
+              {ifStep === 5 && (
+                <div className="space-y-3">
+                  <p className="text-sm font-semibold text-slate-700">費用についての説明を受けましたか？</p>
+                  <div className="space-y-2">
+                    {[
+                      { value: "yes" as const, label: "十分な説明を受けた" },
+                      { value: "insufficient" as const, label: "説明はあったが不十分だった" },
+                      { value: "no" as const, label: "説明をほぼ受けていない" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          set("explanation", opt.value);
+                          setIfStep(ifSituation === "paid" ? 7 : 6);
+                        }}
+                        className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition-all"
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-              <div>
-                <Label>管理上の問題（害虫・設備不備など）の有無</Label>
-                <BoolButtons
-                  value={form.managementIssues}
-                  onChange={(v) => set("managementIssues", v)}
-                  trueLabel="ある"
-                  falseLabel="ない"
-                />
-              </div>
-            </>
+              {/* Step 6: 契約書記載確認 + フィードバック2（non-paid のみ）*/}
+              {ifStep === 6 && (
+                <div className="space-y-4">
+                  <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+                    <p className="text-sm text-amber-800 leading-relaxed">
+                      {getIfFeedback2(form.explanation, ifConcernTheme, form.fees)}
+                    </p>
+                  </div>
+                  <div className="space-y-3">
+                    <p className="text-sm font-semibold text-slate-700">費用について、契約書・重要事項説明書への記載を確認しましたか？</p>
+                    <div className="space-y-2">
+                      {[
+                        { value: "yes" as const, label: "記載を確認した" },
+                        { value: "unknown" as const, label: "確認できていない / 不明" },
+                      ].map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => { set("contractMention", opt.value); setIfStep(7); }}
+                          className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition-all"
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 7: メールトーン + 送信ボタン */}
+              {ifStep === 7 && (
+                <div className="space-y-4">
+                  {ifSituation === "paid" && (
+                    <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+                      <p className="text-sm text-amber-800 leading-relaxed">
+                        {getIfFeedback2(form.explanation, ifConcernTheme, form.fees)}
+                      </p>
+                    </div>
+                  )}
+                  <div className="space-y-3">
+                    <p className="text-sm font-semibold text-slate-700">管理会社へのメールのトーン</p>
+                    <RadioGroup
+                      value={form.emailTone}
+                      onChange={(v) => set("emailTone", v)}
+                      options={[
+                        { value: "polite", label: "丁寧" },
+                        { value: "firm", label: "やや強め" },
+                        { value: "factual", label: "事実確認" },
+                      ]}
+                    />
+                    <p className="text-xs text-slate-400">診断結果と一緒に確認メールの文案を生成します</p>
+                  </div>
+                  {error && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-600">
+                      {error}
+                    </div>
+                  )}
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full bg-slate-800 text-white py-3.5 rounded-xl text-sm font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {loading ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                        </svg>
+                        診断中...
+                      </span>
+                    ) : "診断する →"}
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           {/* ── Mode 2: 契約書チェック ── */}
@@ -999,59 +1227,63 @@ export default function DiagnosisForm() {
             </>
           )}
 
-          {/* ── 共通: 状況の詳細・メールトーン ── */}
-          <div>
-            <Label>状況の詳細（任意）</Label>
-            <textarea
-              value={form.freeText}
-              onChange={(e) => set("freeText", e.target.value)}
-              rows={3}
-              maxLength={1000}
-              placeholder="気になること、経緯など自由にご記入ください"
-              className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 resize-none"
-            />
-            <div className="flex justify-end mt-1">
-              <span className="text-xs text-slate-300">{form.freeText.length}/1000</span>
-            </div>
-          </div>
+          {/* ── 共通: 状況の詳細・メールトーン（initial_fees はウィザード内で完結） ── */}
+          {selectedMode !== "initial_fees" && (
+            <>
+              <div>
+                <Label>状況の詳細（任意）</Label>
+                <textarea
+                  value={form.freeText}
+                  onChange={(e) => set("freeText", e.target.value)}
+                  rows={3}
+                  maxLength={1000}
+                  placeholder="気になること、経緯など自由にご記入ください"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 resize-none"
+                />
+                <div className="flex justify-end mt-1">
+                  <span className="text-xs text-slate-300">{form.freeText.length}/1000</span>
+                </div>
+              </div>
 
-          <div>
-            <Label>確認メールのトーン</Label>
-            <RadioGroup
-              value={form.emailTone}
-              onChange={(v) => set("emailTone", v)}
-              options={[
-                { value: "polite", label: "丁寧" },
-                { value: "firm", label: "やや強め" },
-                { value: "factual", label: "事実確認" },
-              ]}
-            />
-            <HelpText>診断結果と一緒に確認メールの文案を生成します</HelpText>
-          </div>
+              <div>
+                <Label>確認メールのトーン</Label>
+                <RadioGroup
+                  value={form.emailTone}
+                  onChange={(v) => set("emailTone", v)}
+                  options={[
+                    { value: "polite", label: "丁寧" },
+                    { value: "firm", label: "やや強め" },
+                    { value: "factual", label: "事実確認" },
+                  ]}
+                />
+                <HelpText>診断結果と一緒に確認メールの文案を生成します</HelpText>
+              </div>
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-600">
-              {error}
-            </div>
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-600">
+                  {error}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-slate-800 text-white py-3.5 rounded-xl text-sm font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                    診断中...
+                  </span>
+                ) : (
+                  "診断する"
+                )}
+              </button>
+            </>
           )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-slate-800 text-white py-3.5 rounded-xl text-sm font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading ? (
-              <span className="flex items-center justify-center gap-2">
-                <svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                診断中...
-              </span>
-            ) : (
-              "診断する"
-            )}
-          </button>
         </form>
       )}
 
@@ -1067,7 +1299,7 @@ export default function DiagnosisForm() {
               もう一度診断する
             </button>
           </div>
-          <DiagnosisResult result={result} />
+          <DiagnosisResult result={result} initialFeesMeta={submittedIfMeta} />
         </div>
       )}
     </div>
