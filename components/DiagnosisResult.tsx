@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { DiagnosisResult, RiskLevel } from "@/lib/types";
 import type { InitialFeesMeta } from "./DiagnosisForm";
 import { MODE_CONFIG } from "@/lib/modes";
+import { track } from "@/lib/analytics";
 import EmailLockSection from "./EmailLockSection";
 import PurchaseCTA from "./PurchaseCTA";
 
@@ -171,6 +172,87 @@ function CopyButton({ text, className = "" }: { text: string; className?: string
   );
 }
 
+// ─── initial_fees: パーソナライズポイント生成（理由+行動フォーマット）────────
+function getIfPersonalizedPoints(
+  concernTheme: string,
+  issues: string[],
+  overallRisk: RiskLevel,
+  meta?: { fees?: string[]; explanation?: string; contractMention?: string; situation?: string }
+): string[] {
+  const fees = meta?.fees ?? [];
+  const explanation = meta?.explanation ?? "yes";
+  const contractMention = meta?.contractMention ?? "unknown";
+  const situation = meta?.situation ?? "";
+  const points: string[] = [];
+
+  // 費用ごと・説明状況を組み合わせた個別ポイント
+  if (fees.includes("agency_fee")) {
+    if (explanation === "no") {
+      points.push("仲介手数料について説明を受けていないため、請求根拠・算出方法を書面で確認することが重要です");
+    } else if (explanation === "insufficient") {
+      points.push("仲介手数料の説明が不十分なため、根拠となる条項と算出方法を書面で確認しましょう");
+    } else if (contractMention === "unknown") {
+      points.push("仲介手数料が契約書に記載されているか未確認のため、記載箇所と算出根拠の確認が必要です");
+    } else {
+      points.push("仲介手数料の算出方法・根拠を書面で記録として残しておくことが有効です");
+    }
+  }
+
+  if ((fees.includes("key_exchange") || fees.includes("cleaning")) && points.length < 3) {
+    if (explanation === "no" || explanation === "insufficient") {
+      points.push("鍵交換代・クリーニング費は任意の場合があるため、必須か任意かの説明を書面で確認することが重要です");
+    } else {
+      points.push("鍵交換代・クリーニング費の費用負担根拠が契約書に記載されているか確認しましょう");
+    }
+  }
+
+  if (fees.includes("guarantor") && points.length < 3) {
+    points.push("保証会社費用の加入条件・費用内訳については、契約書記載の根拠を書面で確認することが重要です");
+  }
+
+  // 状況×契約書未確認の組み合わせ
+  if (points.length < 3 && contractMention === "unknown") {
+    if (situation === "pre_estimate" || situation === "pre_sign") {
+      points.push("署名前の段階のため、今すぐ契約書・重要事項説明書で各費用の記載を確認することが最優先です");
+    } else if (situation === "pre_payment") {
+      points.push("支払い前の段階のため、内訳・根拠を書面で確認してから支払うことが重要です");
+    }
+  }
+
+  // フォールバック（費用が上記に当てはまらない場合）
+  if (points.length === 0) {
+    const themePoints: Record<string, string> = {
+      agency: "仲介手数料について契約書への記載確認・算出方法の把握が最初のステップです",
+      optional: "任意費用については断れる可能性があるため、必須か任意かを書面で確認することが先決です",
+      key: "鍵交換代は任意の場合があるため、費用負担の根拠と任意性を書面で確認しましょう",
+      cleaning: "クリーニング費については根拠の契約書記載と算出方法の確認が重要です",
+      guarantor: "保証会社費用については加入条件と費用内訳を書面で確認することが重要です",
+      overall: "各費用の根拠を個別に書面で確認することが最初のステップです",
+      unknown: "費用の名目と根拠を一つずつ整理して、不明な項目から確認を始めましょう",
+    };
+    if (concernTheme && themePoints[concernTheme]) points.push(themePoints[concernTheme]);
+  }
+
+  if (overallRisk === "caution" && points.length < 3) {
+    points.push("複数の費用で根拠・説明が不明確なため、各項目を個別に書面で確認することが重要です");
+  }
+
+  return points.slice(0, 3);
+}
+
+function getIfSituationConclusion(situation: string, overallRisk: RiskLevel): string {
+  if (overallRisk === "safe") {
+    return "現時点では大きな懸念は見当たりません。念のため費用の根拠を書面で確認しておくと安心です。";
+  }
+  if (situation === "paid") {
+    return "このため、まず明細・領収書・契約書を手元に揃えて照合することが確認の出発点です。";
+  }
+  if (situation === "pre_estimate" || situation === "pre_sign") {
+    return "このため、署名や支払いの前に書面で費用の根拠を確認することが優先度の高いアクションです。";
+  }
+  return "このため、支払いの前に書面で費用の内訳・根拠を確認することが優先度の高いアクションです。";
+}
+
 // ─── スコア円グラフ ──────────────────────────────────────────────
 function ScoreCircle({ score, ringColor }: { score: number; ringColor: string }) {
   const r = 36;
@@ -307,6 +389,24 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
         .filter((k): k is NonNullable<typeof k> => k != null)
     : [];
 
+  // initial_fees: パーソナライズポイント
+  const personalizedPoints = situationInfo
+    ? getIfPersonalizedPoints(
+        initialFeesMeta?.concernTheme ?? "",
+        result.issues,
+        result.overallRisk,
+        {
+          fees: initialFeesMeta?.fees,
+          explanation: initialFeesMeta?.explanation,
+          contractMention: initialFeesMeta?.contractMention,
+          situation: initialFeesMeta?.situation,
+        }
+      )
+    : [];
+  const situationConclusion = situationInfo
+    ? getIfSituationConclusion(initialFeesMeta?.situation ?? "", result.overallRisk)
+    : "";
+
   // initial_fees: 書類チェックリスト・確認テンプレ
   const docChecklist = (result.mode === "initial_fees" && initialFeesMeta?.situation)
     ? (IF_DOCUMENTS_BY_SITUATION[initialFeesMeta.situation] ?? IF_DOCUMENTS_BY_SITUATION["pre_payment"])
@@ -314,6 +414,16 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
   const confirmTemplate = (result.mode === "initial_fees" && initialFeesMeta?.situation)
     ? getIfConfirmationTemplate(initialFeesMeta.situation)
     : null;
+
+  // analytics: fire once on result mount
+  useEffect(() => {
+    track("diagnosis_completed", {
+      mode: result.mode ?? "unknown",
+      overallRisk: result.overallRisk,
+      score: result.score,
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="space-y-5">
@@ -342,9 +452,115 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
           <div className="shrink-0 flex flex-col items-center gap-1">
             <ScoreCircle score={result.score} ringColor={cfg.ringColor} />
             <span className="text-xs text-slate-500">確認スコア</span>
+            {result.mode === "initial_fees" && (
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full mt-0.5 ${
+                result.overallRisk === "caution"
+                  ? "bg-red-400/20 text-red-300"
+                  : result.overallRisk === "review"
+                  ? "bg-amber-400/20 text-amber-300"
+                  : "bg-green-400/20 text-green-300"
+              }`}>
+                優先度：{result.overallRisk === "caution" ? "高" : result.overallRisk === "review" ? "中" : "低"}
+              </span>
+            )}
           </div>
         </div>
       </div>
+
+      {/* ══════════════════════════════════════════
+          Section 2.5: initial_fees あなたのケース（主役・verdict直後）
+      ══════════════════════════════════════════ */}
+      {situationInfo && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+            あなたのケース
+          </p>
+          <div className="flex items-start gap-3 flex-wrap mb-3">
+            <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-full shrink-0 ${situationInfo.statusColor}`}>
+              {situationInfo.status}
+            </span>
+            <p className="text-sm text-slate-700 leading-relaxed">{situationInfo.desc}</p>
+          </div>
+
+          {personalizedPoints.length > 0 && (
+            <div className="border-t border-slate-100 pt-3 space-y-2.5">
+              <p className="text-xs font-semibold text-slate-500">今回の入力をふまえた確認ポイント</p>
+              <ul className="space-y-2">
+                {personalizedPoints.map((pt, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
+                    <span className="text-amber-500 shrink-0 font-bold text-xs mt-0.5">▸</span>
+                    <span>{pt}</span>
+                  </li>
+                ))}
+              </ul>
+              <div className="bg-slate-50 rounded-xl px-3 py-2.5">
+                <p className="text-xs text-slate-600 leading-relaxed">{situationConclusion}</p>
+              </div>
+            </div>
+          )}
+
+          {/* B-1: この結果の判断に使われた情報（脇役・折りたたみ） */}
+          {initialFeesMeta && (
+            <details className="mt-3 border-t border-slate-100 pt-3">
+              <summary className="text-xs text-slate-400 cursor-pointer select-none hover:text-slate-500 list-none flex items-center gap-1">
+                <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+                この結果の判断に使われた情報
+              </summary>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs mt-2 pl-1">
+                <span className="text-slate-400">状況</span>
+                <span className="text-slate-600">{situationInfo.status}</span>
+                <span className="text-slate-400">説明状況</span>
+                <span className={
+                  initialFeesMeta.explanation === "no" ? "text-red-500" :
+                  initialFeesMeta.explanation === "insufficient" ? "text-amber-600" :
+                  "text-slate-600"
+                }>
+                  {initialFeesMeta.explanation === "no" ? "説明なし" :
+                   initialFeesMeta.explanation === "insufficient" ? "不十分" : "説明あり"}
+                </span>
+                <span className="text-slate-400">契約書記載</span>
+                <span className={initialFeesMeta.contractMention === "unknown" ? "text-amber-600" : "text-slate-600"}>
+                  {initialFeesMeta.contractMention === "yes" ? "確認済み" : "未確認・不明"}
+                </span>
+                <span className="text-slate-400">選択された費用</span>
+                <span className="text-slate-600 leading-relaxed">
+                  {initialFeesMeta.fees.map((f) => ({
+                    agency_fee: "仲介手数料",
+                    key_exchange: "鍵交換代",
+                    cleaning: "清掃代",
+                    guarantor: "保証会社費用",
+                    renewal_fee: "更新料",
+                    recontracting_fee: "再契約料",
+                    other: "その他",
+                  }[f] ?? f)).join("・")}
+                </span>
+              </div>
+            </details>
+          )}
+        </div>
+      )}
+
+      {/* initial_fees: 今すぐやること（あなたのケース直後・主役） */}
+      {situationInfo && (
+        <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
+          <h3 className="text-sm font-semibold text-slate-700 mb-4">今すぐやること</h3>
+          <div className="space-y-4">
+            {actionSteps.map((step) => (
+              <div key={step.num} className="flex gap-4 items-start">
+                <div className="shrink-0 w-7 h-7 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center">
+                  {step.num}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-800 leading-tight">{step.title}</p>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">{step.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* CTA① ── ヴァーディクト直下（review / caution のみ） */}
       {cfg.showTopCTA && (
@@ -391,23 +607,6 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
           {/* CTA② ── 回収可能額直下（ROI訴求） */}
           <div className="mt-4 border-t border-slate-100 pt-4">
             <PurchaseCTA placement="refund" maxRefund={maxRefund} mode={result.mode} />
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════
-          Section 2.5: initial_fees 現在地ブロック
-      ══════════════════════════════════════════ */}
-      {situationInfo && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-            あなたのケースの現在地
-          </p>
-          <div className="flex items-start gap-3 flex-wrap">
-            <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-full shrink-0 ${situationInfo.statusColor}`}>
-              {situationInfo.status}
-            </span>
-            <p className="text-sm text-slate-700 leading-relaxed">{situationInfo.desc}</p>
           </div>
         </div>
       )}
@@ -462,26 +661,26 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
       )}
 
       {/* ══════════════════════════════════════════
-          Section 4: 今すぐやるべき3ステップ
+          Section 4: 今すぐやるべき3ステップ（initial_fees以外）
       ══════════════════════════════════════════ */}
-      <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
-        <h3 className="text-sm font-semibold text-slate-700 mb-4">
-          {situationInfo ? "次に取るべき行動" : "今すぐやるべき3ステップ"}
-        </h3>
-        <div className="space-y-4">
-          {actionSteps.map((step) => (
-            <div key={step.num} className="flex gap-4 items-start">
-              <div className="shrink-0 w-7 h-7 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center">
-                {step.num}
+      {!situationInfo && (
+        <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
+          <h3 className="text-sm font-semibold text-slate-700 mb-4">今すぐやるべき3ステップ</h3>
+          <div className="space-y-4">
+            {actionSteps.map((step) => (
+              <div key={step.num} className="flex gap-4 items-start">
+                <div className="shrink-0 w-7 h-7 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center">
+                  {step.num}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-800 leading-tight">{step.title}</p>
+                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">{step.desc}</p>
+                </div>
               </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-800 leading-tight">{step.title}</p>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed">{step.desc}</p>
-              </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ══════════════════════════════════════════
           Section 4.5: 次に考えられる選択肢（initial_fees のみ）
@@ -566,10 +765,106 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
         </div>
       )}
 
+      {/* ── A-4: 無料診断 → 有料メールへの接続（initial_fees のみ）── */}
+      {result.mode === "initial_fees" && (
+        <div className="rounded-xl bg-slate-50 border border-slate-100 px-4 py-3">
+          <p className="text-xs font-semibold text-slate-600 mb-1">ここまでの診断で確認ポイントが整理されました</p>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            有料版では今回の費用・状況・説明状況を反映した個別の確認メールを生成します。
+            テンプレートではなく、あなたのケースに合わせた文面をそのまま送れる状態で提供します。
+          </p>
+        </div>
+      )}
+
+      {/* ── B-4: 失敗回避メッセージ（initial_fees・折りたたみ）── */}
+      {result.mode === "initial_fees" && result.overallRisk !== "safe" && (
+        <details className="rounded-xl border border-slate-100 bg-white px-4 py-3">
+          <summary className="text-xs text-slate-500 cursor-pointer select-none hover:text-slate-700 font-medium list-none flex items-center gap-1.5">
+            <svg className="w-3 h-3 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            確認メールで避けられる2つの失敗
+          </summary>
+          <ul className="space-y-1.5 mt-2.5">
+            <li className="flex items-start gap-2 text-xs text-slate-500">
+              <span className="text-slate-300 shrink-0 mt-0.5">①</span>
+              <span><strong className="text-slate-600">論点の抜け漏れ</strong>：確認すべきポイントを網羅した文面で、重要な点を見落とすリスクを下げます</span>
+            </li>
+            <li className="flex items-start gap-2 text-xs text-slate-500">
+              <span className="text-slate-300 shrink-0 mt-0.5">②</span>
+              <span><strong className="text-slate-600">伝え方の問題</strong>：強い表現や感情的な文面は逆効果になることがあります。丁寧で的確な表現に整えます</span>
+            </li>
+          </ul>
+        </details>
+      )}
+
       {/* ══════════════════════════════════════════
           Section 5: メール CTA③（EmailLockSection）
       ══════════════════════════════════════════ */}
       <EmailLockSection draftEmail={result.draftEmail} maxRefund={maxRefund} mode={result.mode} />
+
+      {/* ── B-5: メール送信後のガイダンス（initial_fees・折りたたみ）── */}
+      {result.mode === "initial_fees" && (
+        <details className="rounded-2xl border border-slate-200 bg-white p-5">
+          <summary className="text-xs font-medium text-slate-500 cursor-pointer select-none hover:text-slate-700 list-none flex items-center gap-1.5">
+            <svg className="w-3 h-3 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+            メール送信後の対応ガイド（返答パターン別）
+          </summary>
+          <p className="text-xs text-slate-400 mt-3 mb-3 leading-relaxed">
+            管理会社・仲介業者からの返答パターン別に、次の対応を整理しています。
+          </p>
+          <div className="space-y-4">
+            {[
+              {
+                label: "返答がない・無視された場合",
+                color: "border-red-200 bg-red-50",
+                labelColor: "text-red-700 bg-red-100",
+                steps: [
+                  "送信から1週間を目安に、同じ内容でリマインドのメールを送る",
+                  "2回送っても返答がない場合は、消費生活センターや宅建協会の相談窓口に経緯を相談することも選択肢のひとつ",
+                ],
+              },
+              {
+                label: "一部しか回答されなかった場合",
+                color: "border-amber-200 bg-amber-50",
+                labelColor: "text-amber-700 bg-amber-100",
+                steps: [
+                  "回答された内容を記録として保存しておく",
+                  "未回答の項目を明示して、改めて確認のメールを送る（箇条書きで「〇〇について未回答です」と明記）",
+                ],
+              },
+              {
+                label: "電話で回答しようとされた場合",
+                color: "border-blue-200 bg-blue-50",
+                labelColor: "text-blue-700 bg-blue-100",
+                steps: [
+                  "「記録として残したいため、書面（メール）でご回答いただけますか」と伝える",
+                  "口頭で説明を受けた場合でも、内容を自分でメモし、確認メールで「〇〇とのことでした。認識相違がなければご確認ください」と送っておく",
+                ],
+              },
+            ].map((scenario) => (
+              <div key={scenario.label} className={`rounded-xl border ${scenario.color} px-4 py-3`}>
+                <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full mb-2 ${scenario.labelColor}`}>
+                  {scenario.label}
+                </span>
+                <ul className="space-y-1.5">
+                  {scenario.steps.map((step, i) => (
+                    <li key={i} className="flex items-start gap-2 text-xs text-slate-600 leading-relaxed">
+                      <span className="shrink-0 font-bold text-slate-300 mt-0.5">{i + 1}.</span>
+                      <span>{step}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-slate-400 mt-4 pt-3 border-t border-slate-100 leading-relaxed">
+            ※ このガイドは一般的な参考情報です。個別の状況に応じて判断してください。法的な対応については弁護士等にご相談ください。
+          </p>
+        </details>
+      )}
 
       {/* ══════════════════════════════════════════
           Section 6: 信頼性フッター

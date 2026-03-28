@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { DiagnosisMode } from "@/lib/types";
 import { MODE_CONFIG } from "@/lib/modes";
 import CopyButton from "./CopyButton";
+import { track } from "@/lib/analytics";
 
 interface Props {
   draftEmail: string;
@@ -43,10 +44,16 @@ export default function EmailLockSection({ draftEmail, maxRefund, mode }: Props)
   const { preview, rest } = extractPreview(draftEmail);
   const modeCfg = mode ? MODE_CONFIG[mode] : null;
   const valueProps = modeCfg ? modeCfg.emailValueProps : DEFAULT_VALUE_PROPS;
-  const ctaLabel = modeCfg ? modeCfg.ctaLabel : "確認メールを自動生成する";
+  const ctaLabel = modeCfg ? modeCfg.ctaLabel : "そのまま送れる確認メールを取得する（¥980）";
+
+  useEffect(() => {
+    track("email_lock_viewed", { mode: mode ?? "unknown" });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handlePurchase() {
     if (loading) return;
+    track("purchase_started", { mode: mode ?? "unknown", source: "email_lock" });
     setLoading(true);
     setCheckoutError(null);
     try {
@@ -81,10 +88,17 @@ export default function EmailLockSection({ draftEmail, maxRefund, mode }: Props)
             書面での確認が、最も重要なステップです
           </h3>
         </div>
-        <p className="text-xs text-slate-400 leading-relaxed mb-4 ml-6">
+        <p className="text-xs text-slate-400 leading-relaxed mb-3 ml-6">
           管理会社への確認メールを送ることは入居者の当然の権利です。
           適切な確認メールを送ることで、費用の根拠を明確にしてもらえる可能性があります。
         </p>
+
+        {/* 無料診断 → 有料メールの関係説明（initial_fees のみ） */}
+        {mode === "initial_fees" && (
+          <p className="text-xs text-slate-300 leading-relaxed ml-6 mb-3 pb-3 border-b border-white/10">
+            無料診断で整理した確認ポイントをもとに、今回の費用・状況に合わせた個別の確認メールを生成します。
+          </p>
+        )}
 
         {/* 価値リスト */}
         <ul className="space-y-1.5">
@@ -97,6 +111,21 @@ export default function EmailLockSection({ draftEmail, maxRefund, mode }: Props)
             </li>
           ))}
         </ul>
+
+        {/* C: 有料価値の可視化 + D: 無料との差分 */}
+        <div className="mt-4 pt-3 border-t border-white/10 space-y-2">
+          <p className="text-xs text-slate-400">▼ 生成される確認メールのイメージ</p>
+          <div className="bg-white/5 rounded-lg px-3 py-2.5 text-xs text-slate-300 leading-relaxed space-y-0.5">
+            <p>○○費用について、以下の点を確認させてください。</p>
+            <p>・この費用の算出根拠と、契約書上の記載箇所</p>
+            <p>・必須か任意かの区分、およびその根拠</p>
+            <p>・算出方法についてのご説明</p>
+          </div>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            ※ あなたの費用・状況・説明状況に合わせて整理されます。
+            汎用テンプレとは異なり、何を聞くか迷わずに送れる状態です。
+          </p>
+        </div>
       </div>
 
       {/* ── メールプレビュー ── */}
@@ -105,7 +134,11 @@ export default function EmailLockSection({ draftEmail, maxRefund, mode }: Props)
         <div className="px-5 pt-4 pb-2 border-b border-slate-200">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-medium text-slate-400">メール冒頭（プレビュー）</span>
-            <CopyButton text={preview} label="冒頭をコピー" />
+            <CopyButton
+            text={preview}
+            label="冒頭をコピー"
+            onCopy={() => track("email_preview_copied", { mode: mode ?? "unknown" })}
+          />
           </div>
           <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans leading-relaxed">
             {preview}

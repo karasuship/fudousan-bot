@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { DiagnosisMode } from "@/lib/types";
 import { MODE_CONFIG } from "@/lib/modes";
+import { track } from "@/lib/analytics";
 
 interface Props {
   maxRefund?: number;
@@ -23,8 +24,15 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    track("result_cta_viewed", { mode: mode ?? "unknown", placement });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handlePurchase() {
     if (loading) return;
+    track("result_cta_clicked", { mode: mode ?? "unknown", placement });
+    track("purchase_started", { mode: mode ?? "unknown", placement });
     setLoading(true);
     setError(null);
     try {
@@ -78,18 +86,35 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
   if (placement === "verdict") {
     return (
       <div className="rounded-2xl border-l-4 border-amber-400 bg-amber-50 p-5 space-y-3">
-        {/* 緊急性コピー */}
-        <div className="space-y-1">
-          <p className="text-sm font-semibold text-amber-800">
-            {maxRefund
-              ? `このまま支払うと、最大${fmt(maxRefund)}を失う可能性があります`
-              : modeCfg?.ctaUrgency ?? "確認せずに手続きを進めてしまう方が多数います"}
-          </p>
-          <p className="text-xs text-amber-700 leading-relaxed">
-            時間が経つほど証拠の収集や根拠の確認が難しくなります。
-            まず書面で確認することが重要です。
-          </p>
-        </div>
+        {/* タイトル */}
+        <p className="text-sm font-semibold text-amber-800">
+          {maxRefund
+            ? `最大${fmt(maxRefund)}に相当する確認ポイントが見つかりました`
+            : modeCfg?.ctaUrgency ?? "確認すべき費用が見つかりました"}
+        </p>
+
+        {/* 有料の価値3点 */}
+        <ul className="space-y-1">
+          {[
+            "あなたの状況・費用・説明状況を反映した個別文面",
+            "確認すべき論点の抜け漏れを防ぐ構成",
+            "丁寧で回答を得やすい表現に整えます",
+          ].map((v) => (
+            <li key={v} className="flex items-start gap-1.5 text-xs text-amber-700">
+              <svg className="w-3 h-3 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+              </svg>
+              {v}
+            </li>
+          ))}
+        </ul>
+
+        {/* B: 数字→意味変換 */}
+        <p className="text-xs text-amber-700 leading-relaxed">
+          {maxRefund
+            ? "この範囲の費用について、一度整理して確認しておくと安心です。"
+            : "いくつか確認しておきたい論点がある状態です。"}
+        </p>
 
         {error && (
           <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
@@ -97,13 +122,14 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
           </p>
         )}
 
-        <Button label={maxRefund ? `${fmt(maxRefund)}を守るための確認メールを取得する（¥980）` : modeCfg ? modeCfg.ctaLabel : "今すぐ確認メールを作成する（¥980）"} />
+        <Button label={modeCfg ? modeCfg.ctaLabel : "そのまま送れる確認メールを取得する（¥980）"} />
 
         <p className="text-xs text-amber-600 text-center">
           一度の購入でこの診断に対応した確認メール全文を取得できます
         </p>
-        <p className="text-sm text-gray-500 mt-2">
-          ※このメールを送るだけで、対応が変わるケースがあります
+        {/* A: タイミング訴求 */}
+        <p className="text-xs text-amber-600/70 text-center leading-relaxed">
+          ※ 書面での確認は、タイミングによって回答を得にくくなることがあります
         </p>
       </div>
     );
@@ -132,10 +158,14 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
         </p>
       )}
 
-      <Button label={modeCfg ? modeCfg.ctaLabel : "確認メールを作成する（¥980）"} />
+      <Button label={modeCfg ? modeCfg.ctaLabel : "そのまま送れる確認メールを取得する（¥980）"} />
 
       <p className="text-xs text-slate-400 text-center">
-        多くの方が費用の根拠を確認しないまま支払っています
+        診断結果をもとに、そのまま送れる個別の確認メールを生成します
+      </p>
+      {/* A: タイミング訴求 */}
+      <p className="text-xs text-slate-400/70 text-center leading-relaxed">
+        ※ 契約・支払い前後など、早い段階での確認が有効です
       </p>
     </div>
   );

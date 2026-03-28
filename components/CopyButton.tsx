@@ -5,14 +5,16 @@ import { useState } from "react";
 interface CopyButtonProps {
   text: string;
   label?: string;
+  onCopy?: () => void;
 }
 
-export default function CopyButton({ text, label = "コピー" }: CopyButtonProps) {
+export default function CopyButton({ text, label = "コピー", onCopy }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
     await navigator.clipboard.writeText(text);
     setCopied(true);
+    onCopy?.();
     setTimeout(() => setCopied(false), 2000);
   }
 

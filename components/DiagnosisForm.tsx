@@ -11,6 +11,7 @@ import type {
 } from "@/lib/types";
 import { MODE_CONFIG } from "@/lib/modes";
 import DiagnosisResult from "./DiagnosisResult";
+import { track } from "@/lib/analytics";
 
 // ─── initial_fees ウィザード 型定義 ──────────────────────────────────────────
 
@@ -28,22 +29,37 @@ type IfConcernTheme =
 export interface InitialFeesMeta {
   situation: IfSituation;
   concernTheme: IfConcernTheme;
+  fees: string[];
+  explanation: "yes" | "insufficient" | "no";
+  contractMention: "yes" | "unknown";
 }
 
 function getIfFeedback2(explanation: string, concernTheme: string, fees: string[]): string {
+  const prefix = "ここまでの入力をふまえると、";
   if (explanation === "no") {
-    if (fees.includes("agency_fee")) return "仲介手数料について説明を受けていない点が重要な確認ポイントです。";
-    if (fees.includes("cleaning") || fees.includes("key_exchange")) return "オプション費用の説明がなかった点が重要なポイントです。";
-    return "説明を受けていない費用については、根拠の確認が特に重要です。";
+    if (fees.includes("agency_fee")) return `${prefix}仲介手数料について説明を受けていない点が特に重要な確認ポイントです。`;
+    if (fees.includes("cleaning") || fees.includes("key_exchange")) return `${prefix}オプション費用の説明がなかった点が重要なポイントです。`;
+    return `${prefix}説明を受けていない費用については、根拠の確認が特に重要です。`;
   }
   if (explanation === "insufficient") {
     if (concernTheme === "optional" || fees.includes("cleaning") || fees.includes("key_exchange")) {
-      return "任意オプションの説明が不十分だった点が重要なポイントになります。";
+      return `${prefix}任意オプションの説明が不十分だった点が重要なポイントになります。`;
     }
-    return "費用の根拠・算出方法の確認が次のステップになります。";
+    return `${prefix}費用の根拠・算出方法の確認が次のステップになります。`;
   }
-  return "書面での確認記録を残しておくと、後から参照できて安心です。";
+  return `${prefix}書面での確認記録を残しておくと、後から参照できて安心です。`;
 }
+
+// 関心テーマ別・Feedback1補足テキスト
+const IF_CONCERN_FEEDBACK: Partial<Record<IfConcernTheme, string>> = {
+  agency: "仲介手数料については、請求根拠と算出方法が特に確認優先度の高いポイントです。",
+  optional: "任意費用の説明有無が重要です。断れる可能性がある費用があれば、説明内容の確認が先決です。",
+  key: "鍵交換代については、費用負担の根拠と任意性が確認ポイントです。",
+  cleaning: "クリーニング費については、根拠の記載と算出方法が確認ポイントです。",
+  guarantor: "保証会社費用については、加入条件と費用内訳が確認優先度の高いポイントです。",
+  overall: "各費用の根拠を個別に確認することから始めるとよさそうです。",
+  unknown: "費用を名目ごとに一つずつ確認することから始めると整理しやすいです。",
+};
 
 // ─── 共通UIパーツ ────────────────────────────────────────────────────────
 
@@ -404,6 +420,8 @@ export default function DiagnosisForm() {
     const payload = buildPayload();
     if (!payload) return;
 
+    track("diagnosis_started", { mode: selectedMode ?? undefined });
+
     setLoading(true);
     try {
       const res = await fetch("/api/diagnose", {
@@ -418,7 +436,13 @@ export default function DiagnosisForm() {
       }
       setResult(data);
       if (selectedMode === "initial_fees") {
-        setSubmittedIfMeta({ situation: ifSituation, concernTheme: ifConcernTheme });
+        setSubmittedIfMeta({
+          situation: ifSituation,
+          concernTheme: ifConcernTheme,
+          fees: form.fees,
+          explanation: form.explanation,
+          contractMention: form.contractMention,
+        });
       }
       try {
         localStorage.setItem("rental_diagnosis_result_v1", JSON.stringify(data));
@@ -566,14 +590,19 @@ export default function DiagnosisForm() {
               {/* Step 3: 費用選択 + フィードバック1 */}
               {ifStep === 3 && (
                 <div className="space-y-4">
-                  <div className="bg-sky-50 border border-sky-100 rounded-xl px-4 py-3">
-                    <p className="text-sm text-sky-800 leading-relaxed">
+                  <div className="bg-sky-50 border border-sky-100 rounded-xl px-4 py-3 space-y-1.5">
+                    <p className="text-sm text-sky-800 leading-relaxed font-medium">
                       {ifSituation === "paid"
                         ? "支払済みなので、明細・書類の整理が重要なポイントになります。"
                         : ifSituation === "pre_estimate"
                         ? "まだ見積もり段階なので、費用の確認・調整がしやすい状況です。"
                         : "まだ支払い前なので、確認・調整の余地があります。"}
                     </p>
+                    {ifConcernTheme && IF_CONCERN_FEEDBACK[ifConcernTheme] && (
+                      <p className="text-xs text-sky-700 leading-relaxed">
+                        {IF_CONCERN_FEEDBACK[ifConcernTheme]}
+                      </p>
+                    )}
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-slate-700 mb-2">請求されている費用（複数選択可）</p>
