@@ -24,7 +24,8 @@ type IfConcernTheme =
   | "key"
   | "cleaning"
   | "guarantor"
-  | "unknown";
+  | "unknown"
+  | "hopeless";
 
 type IfFeeDetail = {
   agencyFeeMonths: "" | "half" | "one" | "over";
@@ -70,6 +71,7 @@ const IF_CONCERN_FEEDBACK: Partial<Record<IfConcernTheme, string>> = {
   guarantor: "保証会社費用については、加入条件と費用内訳が確認優先度の高いポイントです。",
   overall: "各費用の根拠を個別に確認することから始めるとよさそうです。",
   unknown: "費用を名目ごとに一つずつ確認することから始めると整理しやすいです。",
+  hopeless: "書面で確認を求めるだけで管理会社の対応が変わるケースがあります。弁護士に頼まなくても、確認メール1本で動いた事例は多くあります。まず確認することにリスクはありません。",
 };
 
 // ─── 共通UIパーツ ────────────────────────────────────────────────────────
@@ -155,25 +157,17 @@ function BoolButtons({
   );
 }
 
-function getRiskButtonClass(risk: "red" | "yellow" | "green" | "neutral", isSelected: boolean): string {
-  if (risk === "red") {
-    return isSelected
-      ? "bg-red-600 text-white border-red-600"
-      : "border-red-200 bg-red-50 text-red-800 hover:border-red-400 hover:bg-red-100";
+function getRiskButtonClass(
+  risk: "red" | "yellow" | "green" | "neutral",
+  isSelected: boolean
+): string {
+  if (!isSelected) {
+    return "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50";
   }
-  if (risk === "yellow") {
-    return isSelected
-      ? "bg-amber-500 text-white border-amber-500"
-      : "border-amber-200 bg-amber-50 text-amber-800 hover:border-amber-400 hover:bg-amber-100";
-  }
-  if (risk === "green") {
-    return isSelected
-      ? "bg-green-600 text-white border-green-600"
-      : "border-green-200 bg-green-50 text-green-800 hover:border-green-400 hover:bg-green-100";
-  }
-  return isSelected
-    ? "bg-blue-800 text-white border-blue-800"
-    : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50";
+  if (risk === "red") return "bg-red-600 text-white border-red-600";
+  if (risk === "yellow") return "bg-amber-500 text-white border-amber-500";
+  if (risk === "green") return "bg-green-600 text-white border-green-600";
+  return "bg-blue-800 text-white border-blue-800";
 }
 
 const FEE_OPTIONS: { value: FeeType; label: string }[] = [
@@ -319,6 +313,9 @@ export default function DiagnosisForm() {
   const [ifSituation, setIfSituation] = useState<IfSituation>("");
   const [ifConcernTheme, setIfConcernTheme] = useState<IfConcernTheme>("");
   const [submittedIfMeta, setSubmittedIfMeta] = useState<InitialFeesMeta | null>(null);
+  const [feeQueue, setFeeQueue] = useState<string[]>([]);
+  const [step4Comment, setStep4Comment] = useState("");
+  const [rentStr, setRentStr] = useState("");
 
   function set<K extends keyof AllModesForm>(key: K, value: AllModesForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -369,18 +366,33 @@ export default function DiagnosisForm() {
       cleaningMandatory: "",
       cleaningContract: "",
     });
+    setFeeQueue([]);
+    setRentStr("");
   }
 
   function goBack() {
     if (ifStep <= 1) return;
     if (ifStep === 7 && ifSituation === "paid") {
       setIfStep(5);
-    } else if (ifStep === 4 && (ifFeeDetail.agencyFeeMonths || ifFeeDetail.keyExchangeDone || ifFeeDetail.cleaningMandatory)) {
+    } else if ((ifStep === 7 || ifStep === 4 || ifStep === 5 || ifStep === 6) &&
+      (ifFeeDetail.agencyFeeMonths || ifFeeDetail.keyExchangeDone || ifFeeDetail.cleaningMandatory)) {
       if (form.fees.includes("agency_fee")) setIfStep(8);
       else if (form.fees.includes("key_exchange")) setIfStep(9);
       else setIfStep(10);
     } else {
       setIfStep(ifStep - 1);
+    }
+  }
+
+  function proceedFromFeeDetail() {
+    if (feeQueue.length > 0) {
+      const next = feeQueue[0];
+      setFeeQueue(feeQueue.slice(1));
+      if (next === "agency_fee") setIfStep(8);
+      else if (next === "key_exchange") setIfStep(9);
+      else setIfStep(10);
+    } else {
+      setIfStep(7);
     }
   }
 
@@ -607,6 +619,8 @@ export default function DiagnosisForm() {
                   cleaningMandatory: "",
                   cleaningContract: "",
                 });
+                setFeeQueue([]);
+                setRentStr("");
               }}
               className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
             >
@@ -727,6 +741,7 @@ export default function DiagnosisForm() {
                       { value: "cleaning" as IfConcernTheme, label: "クリーニング費が気になる", fees: ["cleaning"] as FeeType[] },
                       { value: "guarantor" as IfConcernTheme, label: "保証会社費用が気になる", fees: ["guarantor"] as FeeType[] },
                       { value: "unknown" as IfConcernTheme, label: "よくわからないがなんか多い", fees: [] as FeeType[] },
+                      { value: "hopeless" as IfConcernTheme, label: "どうせ無駄だと思いつつ気になっている", fees: [] as FeeType[] },
                     ].map((opt) => (
                       <button
                         key={opt.value}
@@ -751,7 +766,7 @@ export default function DiagnosisForm() {
                   <div className="bg-sky-50 border border-sky-100 rounded-xl px-4 py-3 space-y-1.5">
                     <p className="text-sm text-sky-800 leading-relaxed font-medium">
                       {ifSituation === "paid"
-                        ? "支払済みなので、明細・書類の整理が重要なポイントになります。"
+                        ? "支払済みの場合でも、説明義務違反・根拠のない費用については確認・返金請求できるケースがあります。賃貸契約にクーリングオフはありませんが、費用の根拠を確認することから始めることができます。"
                         : ifSituation === "pre_estimate"
                         ? "まだ見積もり段階なので、費用の確認・調整がしやすい状況です。"
                         : "まだ支払い前なので、確認・調整の余地があります。"}
@@ -786,6 +801,20 @@ export default function DiagnosisForm() {
                     {feeError && <p className="text-red-500 text-xs mt-2">費用を1つ以上選択してください</p>}
                   </div>
                   <div>
+                    <p className="text-xs text-slate-500 mb-1.5">月額賃料（任意）</p>
+                    <div className="relative w-44">
+                      <input
+                        type="number"
+                        value={rentStr}
+                        onChange={(e) => setRentStr(e.target.value)}
+                        placeholder="例: 70000"
+                        min={0}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
+                      />
+                      <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
+                    </div>
+                  </div>
+                  <div>
                     <p className="text-xs text-slate-500 mb-1.5">請求総額（任意）</p>
                     <div className="relative w-44">
                       <input
@@ -798,23 +827,41 @@ export default function DiagnosisForm() {
                       />
                       <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
                     </div>
+                    {(() => {
+                      const rent = Number(rentStr);
+                      const amount = Number(form.amountStr);
+                      const ratio = rent > 0 && amount > 0 ? amount / rent : null;
+                      return ratio !== null ? (
+                        <div className={`rounded-lg px-3 py-2 text-xs mt-2 ${
+                          ratio <= 4
+                            ? "bg-green-50 text-green-700 border border-green-200"
+                            : ratio <= 6
+                            ? "bg-amber-50 text-amber-700 border border-amber-200"
+                            : "bg-red-50 text-red-700 border border-red-200"
+                        }`}>
+                          {ratio <= 4 && `賃料の約${ratio.toFixed(1)}ヶ月分です。概ね相場の範囲内です。`}
+                          {ratio > 4 && ratio <= 6 && `賃料の約${ratio.toFixed(1)}ヶ月分です。やや高めですが範囲内の可能性があります。各費用の根拠を確認することをお勧めします。`}
+                          {ratio > 6 && `賃料の約${ratio.toFixed(1)}ヶ月分です。相場より高い可能性があります。各費用の根拠確認を推奨します。`}
+                        </div>
+                      ) : null;
+                    })()}
                   </div>
                   <button
                     type="button"
                     onClick={() => {
                       if (form.fees.length === 0) { setFeeError(true); return; }
                       setFeeError(false);
-                      const hasAgency = form.fees.includes("agency_fee");
-                      const hasKey = form.fees.includes("key_exchange");
-                      const hasCleaning = form.fees.includes("cleaning");
-                      if (hasAgency) {
-                        setIfStep(8);
-                      } else if (hasKey) {
-                        setIfStep(9);
-                      } else if (hasCleaning) {
-                        setIfStep(10);
+                      const queue: string[] = [];
+                      if (form.fees.includes("agency_fee")) queue.push("agency_fee");
+                      if (form.fees.includes("key_exchange")) queue.push("key_exchange");
+                      if (form.fees.includes("cleaning")) queue.push("cleaning");
+                      if (queue.length > 0) {
+                        setFeeQueue(queue.slice(1));
+                        if (queue[0] === "agency_fee") setIfStep(8);
+                        else if (queue[0] === "key_exchange") setIfStep(9);
+                        else setIfStep(10);
                       } else {
-                        setIfStep(4);
+                        setIfStep(7);
                       }
                     }}
                     className="w-full py-3 rounded-xl bg-blue-800 text-white text-sm font-semibold hover:bg-blue-700 transition-all shadow-sm"
@@ -861,11 +908,13 @@ export default function DiagnosisForm() {
                       </div>
                       <div className="space-y-2">
                         {[
-                          { label: "書面（重要事項説明書など）で説明された", explanation: "yes" as const, pressured: false, risk: "green" as const },
-                          { label: "口頭で説明された", explanation: "insufficient" as const, pressured: false, risk: "yellow" as const },
-                          { label: "説明はなく見積書に載っていただけ", explanation: "no" as const, pressured: false, risk: "red" as const },
-                          { label: "説明を求めたらはぐらかされた", explanation: "no" as const, pressured: true, risk: "red" as const },
-                          { label: "急かされて確認する時間がなかった", explanation: "insufficient" as const, pressured: true, risk: "red" as const },
+                          { label: "書面（重要事項説明書など）で説明された", explanation: "yes" as const, pressured: false, risk: "green" as const, comment: "" },
+                          { label: "口頭で説明された", explanation: "insufficient" as const, pressured: false, risk: "yellow" as const, comment: "" },
+                          { label: "説明はなく見積書に載っていただけ", explanation: "no" as const, pressured: false, risk: "red" as const, comment: "" },
+                          { label: "説明を求めたらはぐらかされた", explanation: "no" as const, pressured: true, risk: "red" as const, comment: "" },
+                          { label: "急かされて確認する時間がなかった", explanation: "insufficient" as const, pressured: true, risk: "red" as const, comment: "" },
+                          { label: "重要事項説明はあったが費用の詳細には触れなかった", explanation: "insufficient" as const, pressured: false, risk: "yellow" as const, comment: "形式的な説明があっても費用の根拠・任意性・算出方法に触れていない場合、説明義務を果たしていないとされる可能性があります" },
+                          { label: "説明はあったが内容が理解できなかった", explanation: "insufficient" as const, pressured: false, risk: "yellow" as const, comment: "理解できる説明を行うことが説明義務の趣旨です。形式的な説明だけでは不十分とされるケースがあります" },
                         ].map((opt) => (
                           <button
                             key={opt.label}
@@ -873,6 +922,7 @@ export default function DiagnosisForm() {
                             onClick={() => {
                               set("explanation", opt.explanation);
                               if (opt.pressured) set("managementIssues", true);
+                              setStep4Comment(opt.comment ?? "");
                               setIfStep(5);
                             }}
                             className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, false)}`}
@@ -880,6 +930,9 @@ export default function DiagnosisForm() {
                             {opt.label}
                           </button>
                         ))}
+                        {step4Comment && (
+                          <p className="text-xs text-amber-600 bg-amber-50 rounded px-2 py-1 mt-1">{step4Comment}</p>
+                        )}
                       </div>
                     </>
                   )}
@@ -1045,7 +1098,7 @@ export default function DiagnosisForm() {
                             type="button"
                             onClick={() => {
                               setIfFeeDetail((prev) => ({ ...prev, agencyFeeLandlord: opt.value }));
-                              setIfStep(4);
+                              proceedFromFeeDetail();
                             }}
                             className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, false)}`}
                           >
@@ -1106,7 +1159,7 @@ export default function DiagnosisForm() {
                             type="button"
                             onClick={() => {
                               setIfFeeDetail((prev) => ({ ...prev, keyExchangeNew: opt.value }));
-                              setIfStep(4);
+                              proceedFromFeeDetail();
                             }}
                             className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, false)}`}
                           >
@@ -1167,7 +1220,7 @@ export default function DiagnosisForm() {
                             type="button"
                             onClick={() => {
                               setIfFeeDetail((prev) => ({ ...prev, cleaningContract: opt.value }));
-                              setIfStep(4);
+                              proceedFromFeeDetail();
                             }}
                             className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, false)}`}
                           >
