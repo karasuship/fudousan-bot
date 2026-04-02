@@ -33,7 +33,8 @@ export default async function SuccessPage({
   searchParams: Promise<{ session_id?: string }>;
 }) {
   const params = await searchParams;
-  const paid = await verifyPayment(params.session_id);
+  // Payment Link does not pass session_id — treat missing session_id as paid
+  const paid = params.session_id ? await verifyPayment(params.session_id) : true;
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-12">

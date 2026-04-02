@@ -26,6 +26,17 @@ type IfConcernTheme =
   | "guarantor"
   | "unknown";
 
+type IfFeeDetail = {
+  agencyFeeMonths: "" | "half" | "one" | "over";
+  agencyFeeConsent: "" | "written" | "oral" | "none";
+  agencyFeeBothSides: "" | "yes" | "no" | "unknown";
+  agencyFeeLandlord: "" | "none" | "yes" | "unknown";
+  keyExchangeDone: "" | "confirmed" | "unconfirmed" | "unknown";
+  keyExchangeNew: "" | "new" | "existing" | "unknown";
+  cleaningMandatory: "" | "mandatory" | "optional" | "no_explanation";
+  cleaningContract: "" | "yes" | "no" | "unknown";
+};
+
 export interface InitialFeesMeta {
   situation: IfSituation;
   concernTheme: IfConcernTheme;
@@ -71,6 +82,15 @@ function HelpText({ children }: { children: React.ReactNode }) {
   return <p className="text-xs text-slate-400 mt-1.5">{children}</p>;
 }
 
+// 質問意図：なぜこの質問をするのかを短く示す（青系インフォボックス）
+function Intent({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 mt-1 mb-2 leading-relaxed">
+      {children}
+    </p>
+  );
+}
+
 function RadioGroup<T extends string>({
   value,
   onChange,
@@ -89,8 +109,8 @@ function RadioGroup<T extends string>({
           onClick={() => onChange(opt.value)}
           className={`px-4 py-2 rounded-lg text-sm border transition-all ${
             value === opt.value
-              ? "bg-slate-800 text-white border-slate-800"
-              : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+              ? "bg-blue-800 text-white border-blue-800 shadow-sm"
+              : "bg-white text-slate-600 border-slate-200 hover:border-blue-400 hover:bg-blue-50"
           }`}
         >
           {opt.label}
@@ -117,7 +137,7 @@ function BoolButtons({
         type="button"
         onClick={() => onChange(true)}
         className={`px-4 py-2 rounded-lg text-sm border transition-all ${
-          value ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+          value ? "bg-blue-800 text-white border-blue-800 shadow-sm" : "bg-white text-slate-600 border-slate-200 hover:border-blue-400 hover:bg-blue-50"
         }`}
       >
         {trueLabel}
@@ -126,13 +146,34 @@ function BoolButtons({
         type="button"
         onClick={() => onChange(false)}
         className={`px-4 py-2 rounded-lg text-sm border transition-all ${
-          !value ? "bg-slate-800 text-white border-slate-800" : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+          !value ? "bg-blue-800 text-white border-blue-800 shadow-sm" : "bg-white text-slate-600 border-slate-200 hover:border-blue-400 hover:bg-blue-50"
         }`}
       >
         {falseLabel}
       </button>
     </div>
   );
+}
+
+function getRiskButtonClass(risk: "red" | "yellow" | "green" | "neutral", isSelected: boolean): string {
+  if (risk === "red") {
+    return isSelected
+      ? "bg-red-600 text-white border-red-600"
+      : "border-red-200 bg-red-50 text-red-800 hover:border-red-400 hover:bg-red-100";
+  }
+  if (risk === "yellow") {
+    return isSelected
+      ? "bg-amber-500 text-white border-amber-500"
+      : "border-amber-200 bg-amber-50 text-amber-800 hover:border-amber-400 hover:bg-amber-100";
+  }
+  if (risk === "green") {
+    return isSelected
+      ? "bg-green-600 text-white border-green-600"
+      : "border-green-200 bg-green-50 text-green-800 hover:border-green-400 hover:bg-green-100";
+  }
+  return isSelected
+    ? "bg-blue-800 text-white border-blue-800"
+    : "border-slate-200 bg-white text-slate-700 hover:border-slate-400 hover:bg-slate-50";
 }
 
 const FEE_OPTIONS: { value: FeeType; label: string }[] = [
@@ -265,6 +306,16 @@ export default function DiagnosisForm() {
 
   // ─── initial_fees ウィザード状態 ─────────────────────────────────────────
   const [ifStep, setIfStep] = useState(1);
+  const [ifFeeDetail, setIfFeeDetail] = useState<IfFeeDetail>({
+    agencyFeeMonths: "",
+    agencyFeeConsent: "",
+    agencyFeeBothSides: "",
+    agencyFeeLandlord: "",
+    keyExchangeDone: "",
+    keyExchangeNew: "",
+    cleaningMandatory: "",
+    cleaningContract: "",
+  });
   const [ifSituation, setIfSituation] = useState<IfSituation>("");
   const [ifConcernTheme, setIfConcernTheme] = useState<IfConcernTheme>("");
   const [submittedIfMeta, setSubmittedIfMeta] = useState<InitialFeesMeta | null>(null);
@@ -308,6 +359,29 @@ export default function DiagnosisForm() {
     setIfSituation("");
     setIfConcernTheme("");
     setSubmittedIfMeta(null);
+    setIfFeeDetail({
+      agencyFeeMonths: "",
+      agencyFeeConsent: "",
+      agencyFeeBothSides: "",
+      agencyFeeLandlord: "",
+      keyExchangeDone: "",
+      keyExchangeNew: "",
+      cleaningMandatory: "",
+      cleaningContract: "",
+    });
+  }
+
+  function goBack() {
+    if (ifStep <= 1) return;
+    if (ifStep === 7 && ifSituation === "paid") {
+      setIfStep(5);
+    } else if (ifStep === 4 && (ifFeeDetail.agencyFeeMonths || ifFeeDetail.keyExchangeDone || ifFeeDetail.cleaningMandatory)) {
+      if (form.fees.includes("agency_fee")) setIfStep(8);
+      else if (form.fees.includes("key_exchange")) setIfStep(9);
+      else setIfStep(10);
+    } else {
+      setIfStep(ifStep - 1);
+    }
   }
 
   function buildPayload() {
@@ -472,7 +546,8 @@ export default function DiagnosisForm() {
     <div className="space-y-8">
       {/* ── Step 1: モード選択 ── */}
       <div>
-        <p className="text-sm font-semibold text-slate-700 mb-3">どの場面のご相談ですか？</p>
+        <p className="text-sm font-bold text-slate-800 mb-1">どの場面のご相談ですか？</p>
+        <p className="text-xs text-slate-500 mb-3">選んだ場面に応じて、確認すべき費用・条項・論点を絞り込みます</p>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
           {MODES.map((m) => (
             <button
@@ -481,8 +556,8 @@ export default function DiagnosisForm() {
               onClick={() => selectMode(m.value)}
               className={`flex flex-col items-start gap-1 px-3 py-3 rounded-xl border text-left transition-all ${
                 selectedMode === m.value
-                  ? "bg-slate-900 text-white border-slate-900"
-                  : "bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-50"
+                  ? "bg-blue-900 text-white border-blue-900 shadow-sm"
+                  : "bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
               }`}
             >
               <span className="text-lg leading-none">{m.icon}</span>
@@ -502,38 +577,116 @@ export default function DiagnosisForm() {
       {/* ── Step 2: フォーム ── */}
       {selectedMode && (
         <form onSubmit={handleSubmit} className="space-y-7">
-          {/* モードバッジ */}
-          <div className="flex items-center gap-2 bg-slate-50 rounded-xl px-4 py-2.5">
-            <span className="text-base">{MODE_CONFIG[selectedMode].icon}</span>
-            <span className="text-sm font-semibold text-slate-700">
-              {MODE_CONFIG[selectedMode].label}
-            </span>
+          {/* モードバッジ + 変更 */}
+          <div className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-base">{MODE_CONFIG[selectedMode].icon}</span>
+              <span className="text-sm font-semibold text-slate-700">
+                {MODE_CONFIG[selectedMode].label}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedMode(null);
+                setForm({ ...INITIAL_FORM, emailTone: form.emailTone });
+                setResult(null);
+                setError(null);
+                setFeeError(false);
+                setIfStep(1);
+                setIfSituation("");
+                setIfConcernTheme("");
+                setSubmittedIfMeta(null);
+                setIfFeeDetail({
+                  agencyFeeMonths: "",
+                  agencyFeeConsent: "",
+                  agencyFeeBothSides: "",
+                  agencyFeeLandlord: "",
+                  keyExchangeDone: "",
+                  keyExchangeNew: "",
+                  cleaningMandatory: "",
+                  cleaningContract: "",
+                });
+              }}
+              className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              変更
+            </button>
           </div>
+
+          {selectedMode !== "initial_fees" && (
+            <p className="text-xs text-slate-400 -mt-3">
+              入力内容をもとに、確認すべきポイントを絞り込みます
+            </p>
+          )}
 
           {/* ── Mode 1: 初期費用チェック（ウィザード形式）── */}
           {selectedMode === "initial_fees" && (
             <div className="space-y-5">
-              {/* プログレスバー */}
-              <div className="flex gap-1">
-                {Array.from({ length: ifSituation === "paid" ? 6 : 7 }).map((_, i) => {
-                  const displayStep = ifStep > 5 && ifSituation === "paid" ? ifStep - 1 : ifStep;
-                  return (
-                    <div
-                      key={i}
-                      className={`h-1 flex-1 rounded-full transition-colors ${
-                        i < displayStep ? "bg-slate-700" : "bg-slate-200"
-                      }`}
-                    />
-                  );
-                })}
-              </div>
+              {/* プログレス */}
+              {(() => {
+                const hasFeeDetail = form.fees.includes("agency_fee") || form.fees.includes("key_exchange") || form.fees.includes("cleaning");
+                const totalSteps = ifSituation === "paid" ? (hasFeeDetail ? 8 : 6) : (hasFeeDetail ? 9 : 7);
+                let displayStep: number;
+                if (ifStep === 8 || ifStep === 9 || ifStep === 10) {
+                  const deepQ1Answered =
+                    (ifStep === 8 && ifFeeDetail.agencyFeeMonths !== "") ||
+                    (ifStep === 9 && ifFeeDetail.keyExchangeDone !== "") ||
+                    (ifStep === 10 && ifFeeDetail.cleaningMandatory !== "");
+                  displayStep = deepQ1Answered ? 5 : 4;
+                } else if (hasFeeDetail && ifStep >= 4) {
+                  if (ifStep > 5 && ifSituation === "paid") {
+                    displayStep = ifStep + 1;
+                  } else {
+                    displayStep = ifStep + 2;
+                  }
+                } else {
+                  displayStep = ifStep > 5 && ifSituation === "paid" ? ifStep - 1 : ifStep;
+                }
+                return (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex gap-1 flex-1">
+                        {Array.from({ length: totalSteps }).map((_, i) => (
+                          <div
+                            key={i}
+                            className={`h-1 flex-1 rounded-full transition-colors ${
+                              i < displayStep ? "bg-blue-600" : "bg-slate-200"
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-xs text-slate-400 shrink-0 tabular-nums">
+                        {displayStep} / {totalSteps}
+                      </span>
+                    </div>
+                    {ifStep > 1 && (
+                      <button
+                        type="button"
+                        onClick={goBack}
+                        className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors py-1"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                        前の質問に戻る
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Step 1: 状況 */}
               {ifStep === 1 && (
                 <div className="space-y-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-700">今のご状況を教えてください</p>
-                    <p className="text-xs text-slate-400 mt-1">回答に応じて、関係する質問だけをお聞きします</p>
+                    <p className="text-sm font-bold text-slate-800">今のご状況を教えてください</p>
+                    <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 mt-1.5 leading-relaxed">
+                      どの段階かによって確認できること・確認できる範囲が変わります。現在の状況から絞り込みます。
+                    </p>
                   </div>
                   <div className="space-y-2">
                     {[
@@ -559,7 +712,12 @@ export default function DiagnosisForm() {
               {/* Step 2: 気になる点 */}
               {ifStep === 2 && (
                 <div className="space-y-3">
-                  <p className="text-sm font-semibold text-slate-700">一番気になることを教えてください</p>
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">一番気になることを教えてください</p>
+                    <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 mt-1.5 leading-relaxed">
+                      最も気になる点から確認ポイントを絞り込みます。費用の名目によって確認すべき根拠・論点が異なります。
+                    </p>
+                  </div>
                   <div className="space-y-2">
                     {[
                       { value: "overall" as IfConcernTheme, label: "全体的に高い気がする", fees: [] as FeeType[] },
@@ -605,7 +763,10 @@ export default function DiagnosisForm() {
                     )}
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-slate-700 mb-2">請求されている費用（複数選択可）</p>
+                    <p className="text-sm font-bold text-slate-800 mb-1">請求されている費用（複数選択可）</p>
+                    <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 mb-2 leading-relaxed">
+                      費用の名目によって確認すべき契約条項・負担根拠が異なります。消毒費・24時間サポート・書類作成費などは「その他」として選択してください。
+                    </p>
                     <div className="flex flex-wrap gap-2">
                       {FEE_OPTIONS.map((opt) => (
                         <button
@@ -614,8 +775,8 @@ export default function DiagnosisForm() {
                           onClick={() => toggleFee(opt.value)}
                           className={`px-4 py-2 rounded-lg text-sm border transition-all ${
                             form.fees.includes(opt.value)
-                              ? "bg-slate-800 text-white border-slate-800"
-                              : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+                              ? "bg-blue-800 text-white border-blue-800 shadow-sm"
+                              : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
                           }`}
                         >
                           {opt.label}
@@ -643,9 +804,20 @@ export default function DiagnosisForm() {
                     onClick={() => {
                       if (form.fees.length === 0) { setFeeError(true); return; }
                       setFeeError(false);
-                      setIfStep(4);
+                      const hasAgency = form.fees.includes("agency_fee");
+                      const hasKey = form.fees.includes("key_exchange");
+                      const hasCleaning = form.fees.includes("cleaning");
+                      if (hasAgency) {
+                        setIfStep(8);
+                      } else if (hasKey) {
+                        setIfStep(9);
+                      } else if (hasCleaning) {
+                        setIfStep(10);
+                      } else {
+                        setIfStep(4);
+                      }
                     }}
-                    className="w-full py-3 rounded-xl bg-slate-800 text-white text-sm font-semibold hover:bg-slate-700 transition-all"
+                    className="w-full py-3 rounded-xl bg-blue-800 text-white text-sm font-semibold hover:bg-blue-700 transition-all shadow-sm"
                   >
                     次へ →
                   </button>
@@ -657,7 +829,12 @@ export default function DiagnosisForm() {
                 <div className="space-y-3">
                   {ifSituation === "paid" ? (
                     <>
-                      <p className="text-sm font-semibold text-slate-700">明細書・領収書・契約書はお手元にありますか？</p>
+                      <div>
+                        <p className="text-sm font-bold text-slate-800">明細書・領収書・契約書はお手元にありますか？</p>
+                        <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 mt-1.5 leading-relaxed">
+                          費用内訳の照合・確認には書類が出発点になります。あるかどうかで次のステップが変わります。
+                        </p>
+                      </div>
                       <div className="space-y-2">
                         {[
                           { label: "ある（または手に入れられる）", mention: "yes" as const },
@@ -676,17 +853,29 @@ export default function DiagnosisForm() {
                     </>
                   ) : (
                     <>
-                      <p className="text-sm font-semibold text-slate-700">費用の支払いを急かされましたか？</p>
+                      <div>
+                        <p className="text-sm font-bold text-slate-800">費用の説明はどのように受けましたか？</p>
+                        <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 mt-1.5 leading-relaxed">
+                          説明の方法と内容によって、確認できる論点が変わります。
+                        </p>
+                      </div>
                       <div className="space-y-2">
                         {[
-                          { label: "急かされた・断りにくい雰囲気だった", pressured: true },
-                          { label: "特になかった", pressured: false },
+                          { label: "書面（重要事項説明書など）で説明された", explanation: "yes" as const, pressured: false, risk: "green" as const },
+                          { label: "口頭で説明された", explanation: "insufficient" as const, pressured: false, risk: "yellow" as const },
+                          { label: "説明はなく見積書に載っていただけ", explanation: "no" as const, pressured: false, risk: "red" as const },
+                          { label: "説明を求めたらはぐらかされた", explanation: "no" as const, pressured: true, risk: "red" as const },
+                          { label: "急かされて確認する時間がなかった", explanation: "insufficient" as const, pressured: true, risk: "red" as const },
                         ].map((opt) => (
                           <button
-                            key={String(opt.pressured)}
+                            key={opt.label}
                             type="button"
-                            onClick={() => { set("managementIssues", opt.pressured); setIfStep(5); }}
-                            className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition-all"
+                            onClick={() => {
+                              set("explanation", opt.explanation);
+                              if (opt.pressured) set("managementIssues", true);
+                              setIfStep(5);
+                            }}
+                            className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, false)}`}
                           >
                             {opt.label}
                           </button>
@@ -697,24 +886,31 @@ export default function DiagnosisForm() {
                 </div>
               )}
 
-              {/* Step 5: 説明の質 */}
+              {/* Step 5: 断れると思いましたか？ */}
               {ifStep === 5 && (
                 <div className="space-y-3">
-                  <p className="text-sm font-semibold text-slate-700">費用についての説明を受けましたか？</p>
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">断れると思いましたか？</p>
+                    <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 mt-1.5 leading-relaxed">
+                      任意費用を必須として説明するケースがあります。認識が確認ポイントに関係します。
+                    </p>
+                  </div>
                   <div className="space-y-2">
                     {[
-                      { value: "yes" as const, label: "十分な説明を受けた" },
-                      { value: "insufficient" as const, label: "説明はあったが不十分だった" },
-                      { value: "no" as const, label: "説明をほぼ受けていない" },
+                      { label: "断れると思わなかった", pressured: false, risk: "yellow" as const },
+                      { label: "断ろうとしたら渋られた", pressured: true, risk: "red" as const },
+                      { label: "断ったら契約できないと言われた", pressured: true, risk: "red" as const },
+                      { label: "断れると知らなかった", pressured: false, risk: "yellow" as const },
+                      { label: "断れると説明された", pressured: false, risk: "green" as const },
                     ].map((opt) => (
                       <button
-                        key={opt.value}
+                        key={opt.label}
                         type="button"
                         onClick={() => {
-                          set("explanation", opt.value);
+                          if (opt.pressured) set("managementIssues", true);
                           setIfStep(ifSituation === "paid" ? 7 : 6);
                         }}
-                        className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition-all"
+                        className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, false)}`}
                       >
                         {opt.label}
                       </button>
@@ -732,23 +928,258 @@ export default function DiagnosisForm() {
                     </p>
                   </div>
                   <div className="space-y-3">
-                    <p className="text-sm font-semibold text-slate-700">費用について、契約書・重要事項説明書への記載を確認しましたか？</p>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">費用の根拠として何か書面がありますか？</p>
+                      <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 mt-1.5 leading-relaxed">
+                        書面の有無と種類によって、根拠の確認方法が変わります。
+                      </p>
+                    </div>
                     <div className="space-y-2">
                       {[
-                        { value: "yes" as const, label: "記載を確認した" },
-                        { value: "unknown" as const, label: "確認できていない / 不明" },
+                        { value: "yes" as const, label: "契約書・重要事項説明書に記載がある", risk: "green" as const },
+                        { value: "unknown" as const, label: "見積書には載っているが契約書は不明", risk: "yellow" as const },
+                        { value: "unknown" as const, label: "口頭のみで書面がない", risk: "red" as const },
+                        { value: "unknown" as const, label: "書類をもらっていない", risk: "red" as const },
                       ].map((opt) => (
                         <button
-                          key={opt.value}
+                          key={opt.label}
                           type="button"
                           onClick={() => { set("contractMention", opt.value); setIfStep(7); }}
-                          className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition-all"
+                          className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, false)}`}
                         >
                           {opt.label}
                         </button>
                       ))}
                     </div>
                   </div>
+                </div>
+              )}
+
+              {/* Step 8: 仲介手数料深掘り */}
+              {ifStep === 8 && (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">仲介手数料について教えてください</p>
+                    <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 mt-1.5 leading-relaxed">
+                      宅建業法上、借主から受け取れる上限は原則0.5ヶ月分です。請求額と説明内容が確認の核心です。
+                    </p>
+                  </div>
+                  {/* 質問1 */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-slate-600">請求額は賃料の何ヶ月分ですか？</p>
+                    {[
+                      { label: "0.5ヶ月分以下", value: "half" as const, risk: "green" as const },
+                      { label: "1ヶ月分", value: "one" as const, risk: "yellow" as const },
+                      { label: "1ヶ月分超", value: "over" as const, risk: "red" as const },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setIfFeeDetail((prev) => ({ ...prev, agencyFeeMonths: opt.value }))}
+                        className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, ifFeeDetail.agencyFeeMonths === opt.value)}`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                    {ifFeeDetail.agencyFeeMonths === "over" && (
+                      <p className="text-xs text-red-600 mt-1">⚠️ 借主から1ヶ月分超の請求は宅建業法上の上限を超えている可能性があります</p>
+                    )}
+                    {ifFeeDetail.agencyFeeMonths === "one" && (
+                      <p className="text-xs text-amber-600 mt-1">借主の書面による承諾がある場合のみ1ヶ月分が認められます。両手仲介の場合は0.5ヶ月分が上限になります</p>
+                    )}
+                  </div>
+                  {/* 質問2（質問1回答後に表示） */}
+                  {ifFeeDetail.agencyFeeMonths !== "" && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-slate-600">請求時の説明は？</p>
+                      {[
+                        { label: "書面で承諾した", value: "written" as const, risk: "neutral" as const },
+                        { label: "口頭のみ", value: "oral" as const, risk: "yellow" as const },
+                        { label: "説明なし・承諾なし", value: "none" as const, risk: "red" as const },
+                      ].map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setIfFeeDetail((prev) => ({ ...prev, agencyFeeConsent: opt.value }))}
+                          className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, ifFeeDetail.agencyFeeConsent === opt.value)}`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* 質問3（質問2回答後に表示） */}
+                  {ifFeeDetail.agencyFeeConsent !== "" && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-slate-600">貸主からも手数料を取っていると説明されましたか？</p>
+                      {[
+                        { label: "説明された", value: "yes" as const, risk: "yellow" as const },
+                        { label: "説明されていない", value: "no" as const, risk: "red" as const },
+                        { label: "わからない", value: "unknown" as const, risk: "red" as const },
+                      ].map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => setIfFeeDetail((prev) => ({ ...prev, agencyFeeBothSides: opt.value }))}
+                          className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, ifFeeDetail.agencyFeeBothSides === opt.value)}`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {/* 質問4（質問3回答後に表示） */}
+                  {ifFeeDetail.agencyFeeBothSides !== "" && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-slate-600">貸主側への手数料を含めた合計はいくらか確認できますか？</p>
+                      <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 leading-relaxed">
+                        宅建業法の上限は借主・貸主合計で1ヶ月分です。貸主からも受け取っている場合、借主への請求は0.5ヶ月分が上限になります。
+                      </p>
+                      {[
+                        { label: "貸主からは受け取っていないと説明された", value: "none" as const, risk: "green" as const },
+                        { label: "貸主からも受け取っていると言われた", value: "yes" as const, risk: "red" as const },
+                        { label: "教えてもらえなかった・わからない", value: "unknown" as const, risk: "red" as const },
+                      ].map((opt) => (
+                        <div key={opt.value}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIfFeeDetail((prev) => ({ ...prev, agencyFeeLandlord: opt.value }));
+                              setIfStep(4);
+                            }}
+                            className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, false)}`}
+                          >
+                            {opt.label}
+                          </button>
+                          {opt.value === "yes" && ifFeeDetail.agencyFeeLandlord === "yes" && (
+                            <p className="text-xs text-red-600 mt-2">⚠️ 両手仲介の場合、借主から受け取れる手数料は原則0.5ヶ月分が上限です</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step 9: 鍵交換代深掘り */}
+              {ifStep === 9 && (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">鍵交換代について教えてください</p>
+                    <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 mt-1.5 leading-relaxed">
+                      実際に交換が行われていない場合、名目と実態の不一致として確認できます。
+                    </p>
+                  </div>
+                  {/* 質問1 */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-slate-600">鍵交換は実際に行われましたか？</p>
+                    {[
+                      { label: "業者が来て交換した", value: "confirmed" as const, risk: "green" as const, comment: null },
+                      { label: "確認できていない", value: "unconfirmed" as const, risk: "yellow" as const, comment: "⚠️ 鍵交換の実施確認ができない場合、実態のない請求の可能性として確認できます" },
+                      { label: "入居時に鍵が変わっていなかった気がする", value: "unknown" as const, risk: "red" as const, comment: "⚠️ 交換が行われていない可能性がある場合、名目と実態の不一致として確認すべき状態です" },
+                    ].map((opt) => (
+                      <div key={opt.value}>
+                        <button
+                          type="button"
+                          onClick={() => setIfFeeDetail((prev) => ({ ...prev, keyExchangeDone: opt.value }))}
+                          className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, ifFeeDetail.keyExchangeDone === opt.value)}`}
+                        >
+                          {opt.label}
+                        </button>
+                        {opt.comment && ifFeeDetail.keyExchangeDone === opt.value && (
+                          <p className={`text-xs mt-1 ${opt.risk === "red" ? "text-red-600" : "text-amber-600"}`}>{opt.comment}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {/* 質問2（質問1回答後に表示） */}
+                  {ifFeeDetail.keyExchangeDone !== "" && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-slate-600">物件は新築ですか？</p>
+                      {[
+                        { label: "新築", value: "new" as const, risk: "red" as const, comment: "⚠️ 新築物件で前の入居者がいない場合、鍵交換の必要性自体の根拠確認が重要です" },
+                        { label: "既存物件（前の入居者がいた）", value: "existing" as const, risk: "neutral" as const, comment: null },
+                        { label: "わからない", value: "unknown" as const, risk: "yellow" as const, comment: null },
+                      ].map((opt) => (
+                        <div key={opt.value}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIfFeeDetail((prev) => ({ ...prev, keyExchangeNew: opt.value }));
+                              setIfStep(4);
+                            }}
+                            className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, false)}`}
+                          >
+                            {opt.label}
+                          </button>
+                          {opt.comment && ifFeeDetail.keyExchangeNew === opt.value && (
+                            <p className="text-xs text-red-600 mt-1">{opt.comment}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Step 10: 消毒・クリーニング深掘り */}
+              {ifStep === 10 && (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">消毒代・クリーニング費について教えてください</p>
+                    <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 mt-1.5 leading-relaxed">
+                      入居前クリーニング・消毒は任意のケースがあります。説明の有無と必須・任意の区分が確認ポイントです。
+                    </p>
+                  </div>
+                  {/* 質問1 */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-slate-600">どのように説明されましたか？</p>
+                    {[
+                      { label: "必須と言われた", value: "mandatory" as const, risk: "red" as const, comment: "⚠️ 入居前クリーニング・消毒は原則貸主負担です。借主に必須として請求する根拠の説明を求めることができます" },
+                      { label: "任意と言われた", value: "optional" as const, risk: "green" as const, comment: "任意費用として説明されている場合、断ることができます" },
+                      { label: "説明がなかった", value: "no_explanation" as const, risk: "red" as const, comment: "⚠️ 説明なしに請求されている場合、費用の根拠と任意性の確認が必要です" },
+                    ].map((opt) => (
+                      <div key={opt.value}>
+                        <button
+                          type="button"
+                          onClick={() => setIfFeeDetail((prev) => ({ ...prev, cleaningMandatory: opt.value }))}
+                          className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, ifFeeDetail.cleaningMandatory === opt.value)}`}
+                        >
+                          {opt.label}
+                        </button>
+                        {ifFeeDetail.cleaningMandatory === opt.value && (
+                          <p className={`text-xs mt-1 ${opt.risk === "red" ? "text-red-600" : "text-green-700"}`}>{opt.comment}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {/* 質問2（質問1回答後に表示） */}
+                  {ifFeeDetail.cleaningMandatory !== "" && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-slate-600">契約書に記載がありますか？</p>
+                      {[
+                        { label: "記載がある", value: "yes" as const, risk: "neutral" as const, comment: null },
+                        { label: "記載がない", value: "no" as const, risk: "red" as const, comment: "⚠️ 契約書への記載がない費用の請求は根拠の確認が必要です" },
+                        { label: "確認していない", value: "unknown" as const, risk: "yellow" as const, comment: null },
+                      ].map((opt) => (
+                        <div key={opt.value}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIfFeeDetail((prev) => ({ ...prev, cleaningContract: opt.value }));
+                              setIfStep(4);
+                            }}
+                            className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, false)}`}
+                          >
+                            {opt.label}
+                          </button>
+                          {opt.comment && ifFeeDetail.cleaningContract === opt.value && (
+                            <p className="text-xs text-red-600 mt-1">{opt.comment}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -763,7 +1194,10 @@ export default function DiagnosisForm() {
                     </div>
                   )}
                   <div className="space-y-3">
-                    <p className="text-sm font-semibold text-slate-700">管理会社へのメールのトーン</p>
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">管理会社への確認メールのトーン</p>
+                      <p className="text-xs text-slate-500 mt-1">診断結果をもとに、今回の状況に合わせた確認メールを生成します</p>
+                    </div>
                     <RadioGroup
                       value={form.emailTone}
                       onChange={(v) => set("emailTone", v)}
@@ -773,7 +1207,6 @@ export default function DiagnosisForm() {
                         { value: "factual", label: "事実確認" },
                       ]}
                     />
-                    <p className="text-xs text-slate-400">診断結果と一緒に確認メールの文案を生成します</p>
                   </div>
                   {error && (
                     <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-600">
@@ -783,7 +1216,7 @@ export default function DiagnosisForm() {
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full bg-slate-800 text-white py-3.5 rounded-xl text-sm font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="w-full bg-blue-800 text-white py-3.5 rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
                   >
                     {loading ? (
                       <span className="flex items-center justify-center gap-2">
@@ -805,6 +1238,7 @@ export default function DiagnosisForm() {
             <>
               <div>
                 <Label>契約種別</Label>
+                <Intent>普通借家と定期借家では更新料・更新の仕組みが異なります。種別が確認の出発点です。</Intent>
                 <RadioGroup
                   value={form.contractType}
                   onChange={(v) => set("contractType", v)}
@@ -818,17 +1252,18 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>更新条項の記載</Label>
+                <Intent>定期借家に更新条項がある場合、契約条件の矛盾の可能性を確認します。普通借家では更新条項の内容が費用根拠になります。</Intent>
                 <BoolButtons
                   value={form.hasRenewalClause}
                   onChange={(v) => set("hasRenewalClause", v)}
                   trueLabel="更新条項がある"
                   falseLabel="ない / 不明"
                 />
-                <HelpText>定期借家で更新条項がある場合は要確認です</HelpText>
               </div>
 
               <div>
                 <Label>特約条項の有無</Label>
+                <Intent>借主の費用負担を広げる特約は、内容・説明・同意の有無が確認ポイントです。特約の有効性は記載内容と同意の経緯に左右されます。</Intent>
                 <BoolButtons
                   value={form.hasSpecialClauses}
                   onChange={(v) => set("hasSpecialClauses", v)}
@@ -839,6 +1274,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>違約金・退去時費用に関する特約の有無</Label>
+                <Intent>退去時費用・早期退去ペナルティの特約は、書面への記載・説明・同意の有無が確認の核心です。</Intent>
                 <BoolButtons
                   value={form.hasPenaltyClauses}
                   onChange={(v) => set("hasPenaltyClauses", v)}
@@ -850,6 +1286,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>特約へのチェックボックス等での明示的な同意</Label>
+                <Intent>特約への明示的な同意がない場合、その有効性が照合ポイントになります。同意の方法・経緯を確認します。</Intent>
                 <BoolButtons
                   value={form.hasCheckbox}
                   onChange={(v) => set("hasCheckbox", v)}
@@ -860,6 +1297,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>重要事項説明での口頭説明</Label>
+                <Intent>重要事項説明での口頭説明は宅建業法上の義務とされています。説明の有無・内容の記録を確認します。</Intent>
                 <BoolButtons
                   value={form.hasOralExplanation}
                   onChange={(v) => set("hasOralExplanation", v)}
@@ -875,6 +1313,7 @@ export default function DiagnosisForm() {
             <>
               <div>
                 <Label>契約種別</Label>
+                <Intent>普通借家の「更新」と定期借家の「再契約」では費用の性質・根拠が異なります。種別が確認の出発点です。</Intent>
                 <RadioGroup
                   value={form.contractType}
                   onChange={(v) => set("contractType", v)}
@@ -888,6 +1327,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>手続きの種類</Label>
+                <Intent>普通借家の「更新料」と定期借家の「再契約料」は法的根拠が異なります。種類が確認すべき条項を決めます。</Intent>
                 <RadioGroup
                   value={form.phase}
                   onChange={(v) => set("phase", v)}
@@ -901,6 +1341,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>請求されている費用（複数選択可）</Label>
+                <Intent>費用の名目によって確認すべき契約条項・根拠が変わります。更新事務手数料なども「その他」として選択できます。</Intent>
                 <div className="flex flex-wrap gap-2">
                   {FEE_OPTIONS.map((opt) => (
                     <button
@@ -909,8 +1350,8 @@ export default function DiagnosisForm() {
                       onClick={() => toggleFee(opt.value)}
                       className={`px-4 py-2 rounded-lg text-sm border transition-all ${
                         form.fees.includes(opt.value)
-                          ? "bg-slate-800 text-white border-slate-800"
-                          : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
+                          ? "bg-blue-800 text-white border-blue-800 shadow-sm"
+                          : "bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
                       }`}
                     >
                       {opt.label}
@@ -939,6 +1380,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>費用について契約書への記載</Label>
+                <Intent>費用の根拠が契約書に明記されているかどうかが、請求確認の基本的な出発点です。</Intent>
                 <RadioGroup
                   value={form.contractMention}
                   onChange={(v) => set("contractMention", v)}
@@ -951,6 +1393,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>費用についての説明</Label>
+                <Intent>費用の算出方法・根拠の説明は、請求内容の適切さを確認する基準になります。</Intent>
                 <RadioGroup
                   value={form.explanation}
                   onChange={(v) => set("explanation", v)}
@@ -964,6 +1407,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>費用への同意の経緯</Label>
+                <Intent>どのような経緯で同意したかが、費用の性質確認・照合に関係します。</Intent>
                 <RadioGroup
                   value={form.consentStructure}
                   onChange={(v) => set("consentStructure", v)}
@@ -976,6 +1420,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>管理上の問題（害虫・設備不備など）の有無</Label>
+                <Intent>管理状態に問題がある場合、更新時の費用請求との関係を確認します。</Intent>
                 <BoolButtons
                   value={form.managementIssues}
                   onChange={(v) => set("managementIssues", v)}
@@ -991,6 +1436,7 @@ export default function DiagnosisForm() {
             <>
               <div>
                 <Label>不具合の種類</Label>
+                <Intent>不具合の種類によって、修繕義務の性質・対応の優先度が異なります。</Intent>
                 <RadioGroup
                   value={form.issueType}
                   onChange={(v) => set("issueType", v)}
@@ -1008,6 +1454,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>発生・継続期間</Label>
+                <Intent>発生・継続期間は、対応を求める根拠として書面で記録する情報です。</Intent>
                 <RadioGroup
                   value={form.issueDuration}
                   onChange={(v) => set("issueDuration", v)}
@@ -1022,6 +1469,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>日常生活への影響</Label>
+                <Intent>影響度は対応の緊急性・優先度を伝える根拠として使用します。</Intent>
                 <RadioGroup
                   value={form.lifeImpact}
                   onChange={(v) => set("lifeImpact", v)}
@@ -1035,6 +1483,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>管理会社・貸主への連絡</Label>
+                <Intent>口頭のみでは記録が残りません。書面での連絡が対応確認の証拠になります。</Intent>
                 <BoolButtons
                   value={form.alreadyContacted}
                   onChange={(v) => set("alreadyContacted", v)}
@@ -1045,6 +1494,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>写真・動画などの証拠記録</Label>
+                <Intent>状況の記録は、後の対応・確認で事実の根拠として機能します。</Intent>
                 <BoolButtons
                   value={form.hasEvidence}
                   onChange={(v) => set("hasEvidence", v)}
@@ -1055,6 +1505,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>緊急性（居住継続・安全に関わる）</Label>
+                <Intent>居住に影響する状況は、緊急対応の依頼根拠として明示します。</Intent>
                 <BoolButtons
                   value={form.isUrgent}
                   onChange={(v) => set("isUrgent", v)}
@@ -1070,6 +1521,7 @@ export default function DiagnosisForm() {
             <>
               <div>
                 <Label>請求されている費用（複数選択可）</Label>
+                <Intent>費用の名目によって確認すべき根拠・契約条項が異なります。消毒費・ハウスクリーニングなど名目が不明な場合は「その他」として選択してください。</Intent>
                 <div className="flex flex-wrap gap-2">
                   {MOVE_OUT_FEE_OPTIONS.map((opt) => (
                     <button
@@ -1078,7 +1530,7 @@ export default function DiagnosisForm() {
                       onClick={() => toggleMoveOutFee(opt.value)}
                       className={`px-4 py-2 rounded-lg text-sm border transition-all ${
                         form.moveOutFees.includes(opt.value)
-                          ? "bg-slate-800 text-white border-slate-800"
+                          ? "bg-blue-800 text-white border-blue-800"
                           : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
                       }`}
                     >
@@ -1108,6 +1560,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>損傷の原因</Label>
+                <Intent>故意・過失による損傷と通常使用による損耗は、費用負担者が異なります。</Intent>
                 <BoolButtons
                   value={form.hasOwnerFault}
                   onChange={(v) => set("hasOwnerFault", v)}
@@ -1118,6 +1571,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>通常損耗・経年劣化への請求の可能性</Label>
+                <Intent>通常使用による自然な劣化は原則として貸主負担とされています。</Intent>
                 <BoolButtons
                   value={form.isNormalWear}
                   onChange={(v) => set("isNormalWear", v)}
@@ -1129,6 +1583,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>退去時費用に関する特約の有無</Label>
+                <Intent>特約の内容・有効性は、費用負担の根拠として確認すべき契約事項です。</Intent>
                 <BoolButtons
                   value={form.hasContractSpecialClause}
                   onChange={(v) => set("hasContractSpecialClause", v)}
@@ -1139,6 +1594,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>入居時の室内写真・記録</Label>
+                <Intent>入居時の記録は、退去時の状況比較・原状回復の範囲確認の根拠になります。</Intent>
                 <BoolButtons
                   value={form.hasEntryPhotos}
                   onChange={(v) => set("hasEntryPhotos", v)}
@@ -1149,6 +1605,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>退去立会いの実施</Label>
+                <Intent>立会いの有無は、退去時の状況を双方で確認する機会を持ったかどうかを判断します。</Intent>
                 <BoolButtons
                   value={form.hasInspection}
                   onChange={(v) => set("hasInspection", v)}
@@ -1159,6 +1616,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>費用の詳細な内訳明細の提供</Label>
+                <Intent>明細の提示は、費用の根拠・算出方法の説明として確認する項目です。</Intent>
                 <BoolButtons
                   value={form.hasDetailedQuote}
                   onChange={(v) => set("hasDetailedQuote", v)}
@@ -1169,6 +1627,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>費用について契約書への記載</Label>
+                <Intent>費用の契約書への記載は、負担根拠として確認する基本情報です。</Intent>
                 <RadioGroup
                   value={form.moveOutContractMention}
                   onChange={(v) => set("moveOutContractMention", v)}
@@ -1216,6 +1675,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>差引項目（複数選択可）</Label>
+                <Intent>差引名目によって確認すべき根拠・算出方法が異なります。</Intent>
                 <div className="flex flex-wrap gap-2">
                   {DEDUCTION_OPTIONS.map((item) => (
                     <button
@@ -1224,7 +1684,7 @@ export default function DiagnosisForm() {
                       onClick={() => toggleDeduction(item)}
                       className={`px-4 py-2 rounded-lg text-sm border transition-all ${
                         form.deductionItems.includes(item)
-                          ? "bg-slate-800 text-white border-slate-800"
+                          ? "bg-blue-800 text-white border-blue-800"
                           : "bg-white text-slate-600 border-slate-200 hover:border-slate-300"
                       }`}
                     >
@@ -1236,6 +1696,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>差引明細（費目・金額・算出根拠）の提示</Label>
+                <Intent>差引の費目・金額・算出根拠の明示は、精算の透明性を確認する基本です。</Intent>
                 <BoolButtons
                   value={form.hasDetailedStatement}
                   onChange={(v) => set("hasDetailedStatement", v)}
@@ -1246,6 +1707,7 @@ export default function DiagnosisForm() {
 
               <div>
                 <Label>敷金返還予定日・返還方法の連絡</Label>
+                <Intent>返還スケジュールの連絡は、精算の手続き状況を確認する情報です。</Intent>
                 <BoolButtons
                   value={form.hasReturnSchedule}
                   onChange={(v) => set("hasReturnSchedule", v)}
@@ -1297,7 +1759,7 @@ export default function DiagnosisForm() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-slate-800 text-white py-3.5 rounded-xl text-sm font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="w-full bg-blue-800 text-white py-3.5 rounded-xl text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
               >
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">

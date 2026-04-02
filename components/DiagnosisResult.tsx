@@ -7,6 +7,7 @@ import { MODE_CONFIG } from "@/lib/modes";
 import { track } from "@/lib/analytics";
 import EmailLockSection from "./EmailLockSection";
 import PurchaseCTA from "./PurchaseCTA";
+import { buildResult } from "@/lib/buildResult";
 
 interface Props {
   result: DiagnosisResult;
@@ -317,7 +318,7 @@ const RISK_CONFIG: Record<RiskLevel, {
     badgeBg: "bg-amber-400/20 text-amber-300",
     ringColor: "#fbbf24",
     headline: "確認が必要な費用が見つかりました",
-    subtext: "知らずに払い過ぎている可能性があります。内容を確認することで、見直しの余地が生まれるかもしれません。",
+    subtext: "入力内容と一般的な確認基準を照合した結果、根拠の説明・契約書への記載を確認すべき項目があります。",
     issueBg: "bg-amber-50",
     issueBorder: "border-amber-100",
     issueIconBg: "bg-amber-100",
@@ -329,7 +330,7 @@ const RISK_CONFIG: Record<RiskLevel, {
     badgeBg: "bg-red-400/20 text-red-300",
     ringColor: "#f87171",
     headline: "複数の重要な確認事項が見つかりました",
-    subtext: "費用の根拠が不明確な項目が複数あります。このまま放置すると、確認できる機会を失う可能性があります。",
+    subtext: "入力内容と照合した結果、費用の根拠・算出方法・契約書記載について複数の確認ポイントがあります。",
     issueBg: "bg-red-50",
     issueBorder: "border-red-100",
     issueIconBg: "bg-red-100",
@@ -425,6 +426,8 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const structuredResult = buildResult({ result, meta: initialFeesMeta });
+
   return (
     <div className="space-y-5">
 
@@ -444,7 +447,7 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
                 </span>
               )}
             </div>
-            <h2 className="text-lg sm:text-xl font-bold leading-snug mb-2 text-white">
+            <h2 className="text-xl sm:text-2xl font-bold leading-snug mb-2 text-white">
               {headline}
             </h2>
             <p className="text-slate-300 text-sm leading-relaxed">{subtext}</p>
@@ -466,6 +469,134 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
           </div>
         </div>
       </div>
+
+      {/* ══════════════════════════════════════════
+          NEW-1: 結論（summary）
+      ══════════════════════════════════════════ */}
+      <div className="rounded-2xl bg-blue-900 border border-blue-700 p-5">
+        <p className="text-xs font-semibold text-blue-300 uppercase tracking-wider mb-2">結論</p>
+        <p className="text-sm text-white leading-relaxed font-medium">{structuredResult.summary}</p>
+      </div>
+
+      {/* ══════════════════════════════════════════
+          NEW-2: 適用ルール（rules）
+      ══════════════════════════════════════════ */}
+      {structuredResult.rules.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+            適用ルール（{structuredResult.rules.length}件）
+          </p>
+          <ul className="space-y-2.5">
+            {structuredResult.rules.map((rule, i) => (
+              <li key={i} className="flex gap-2.5 items-start text-sm text-slate-700">
+                <span className="shrink-0 text-blue-500 font-bold text-xs mt-0.5">§{i + 1}</span>
+                <span className="leading-relaxed">{rule}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════
+          NEW-3: 照合結果（matches）
+      ══════════════════════════════════════════ */}
+      {structuredResult.matches.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+            照合結果（{structuredResult.matches.length}軸）
+          </p>
+          <ul className="space-y-2">
+            {structuredResult.matches.map((match, i) => {
+              const [axis, result_] = match.split(" → ");
+              return (
+                <li key={i} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2.5">
+                  <p className="text-xs font-semibold text-slate-500 mb-0.5">{axis}</p>
+                  {result_ && (
+                    <p className="text-xs text-slate-600 leading-relaxed">→ {result_}</p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════
+          NEW-4: 問題点（issues from buildResult）
+      ══════════════════════════════════════════ */}
+      {structuredResult.issues.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-700 mb-0.5">
+            問題点（{structuredResult.issues.length}件）
+          </h3>
+          <p className="text-xs text-slate-400 mb-3">
+            4軸（同意・説明・実態・名目）で崩れている論点を抽出しました
+          </p>
+          <ul className="space-y-3">
+            {structuredResult.issues.map((issue) => (
+              <li
+                key={issue.id}
+                className={`rounded-xl border p-4 ${cfg.issueBg} ${cfg.issueBorder}`}
+              >
+                <div className="flex items-start gap-3 mb-2">
+                  <div className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${cfg.issueIconBg}`}>
+                    <svg className={`w-3.5 h-3.5 ${cfg.issueIconColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5}
+                        d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <span className="text-xs font-semibold text-slate-500 bg-white border border-slate-200 rounded px-1.5 py-0.5">
+                        {issue.category}
+                      </span>
+                      <p className="text-sm font-semibold text-slate-800 leading-snug">{issue.title}</p>
+                    </div>
+                    <p className="text-xs text-slate-500 leading-relaxed mb-2">{issue.explanation}</p>
+                    <details className="text-xs">
+                      <summary className="text-slate-400 cursor-pointer hover:text-slate-600 list-none flex items-center gap-1 select-none">
+                        <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                        確認ポイントを見る
+                      </summary>
+                      <ul className="mt-2 space-y-1 pl-1">
+                        {issue.checkPoints.map((cp, ci) => (
+                          <li key={ci} className="flex items-start gap-1.5 text-slate-600">
+                            <span className="text-slate-300 shrink-0 font-bold">{ci + 1}.</span>
+                            <span>{cp}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════
+          NEW-5: 次の行動（actions from buildResult）
+      ══════════════════════════════════════════ */}
+      {structuredResult.actions.length > 0 && (
+        <div className="rounded-2xl bg-slate-900 p-5">
+          <h3 className="text-sm font-semibold text-white mb-4">
+            次の行動（{structuredResult.actions.length}ステップ）
+          </h3>
+          <div className="space-y-3">
+            {structuredResult.actions.map((action, i) => (
+              <div key={i} className="flex gap-3 items-start">
+                <div className="shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">
+                  {i + 1}
+                </div>
+                <p className="text-sm text-slate-200 leading-relaxed pt-0.5">{action}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ══════════════════════════════════════════
           Section 2.5: initial_fees あなたのケース（主役・verdict直後）
@@ -542,33 +673,10 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
         </div>
       )}
 
-      {/* initial_fees: 今すぐやること（あなたのケース直後・主役） */}
-      {situationInfo && (
-        <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">今すぐやること</h3>
-          <div className="space-y-4">
-            {actionSteps.map((step) => (
-              <div key={step.num} className="flex gap-4 items-start">
-                <div className="shrink-0 w-7 h-7 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center">
-                  {step.num}
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-slate-800 leading-tight">{step.title}</p>
-                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">{step.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* CTA① ── ヴァーディクト直下（review / caution のみ） */}
-      {cfg.showTopCTA && (
-        <PurchaseCTA placement="verdict" maxRefund={maxRefund} mode={result.mode} />
-      )}
+      {/* 今すぐやること → NEW-5（次の行動）に統合済み */}
 
       {/* ══════════════════════════════════════════
-          Section 2: 回収可能額ハイライト
+          Section 2: 回収可能額ハイライト（CTA①より先に表示でインパクト訴求）
       ══════════════════════════════════════════ */}
       {hasRefund && (
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -603,84 +711,47 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
               ))}
             </div>
           )}
-
-          {/* CTA② ── 回収可能額直下（ROI訴求） */}
-          <div className="mt-4 border-t border-slate-100 pt-4">
-            <PurchaseCTA placement="refund" maxRefund={maxRefund} mode={result.mode} />
-          </div>
         </div>
       )}
 
-      {/* ══════════════════════════════════════════
-          Section 3: 確認事項リスト
-      ══════════════════════════════════════════ */}
-      {result.issues.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-slate-700 mb-3">
-            {situationInfo ? "気になるポイント" : "見つかった確認事項"}（{result.issues.length}件）
-          </h3>
-          <ul className="space-y-2.5">
-            {result.issues.map((issue, i) => (
-              <li key={i} className={`flex gap-3 rounded-xl border p-4 ${cfg.issueBg} ${cfg.issueBorder}`}>
-                <div className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${cfg.issueIconBg}`}>
-                  <svg className={`w-3.5 h-3.5 ${cfg.issueIconColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5}
-                      d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <p className="text-sm text-slate-700 leading-relaxed">{issue}</p>
-              </li>
-            ))}
-          </ul>
-        </div>
+      {/* CTA① ── 金額・ケース確認後（review / caution のみ） */}
+      {cfg.showTopCTA && (
+        <PurchaseCTA placement="verdict" maxRefund={maxRefund} mode={result.mode} />
       )}
 
+      {/* Section 3: 照合ポイント → NEW-4（問題点）に統合済み */}
+
       {/* ══════════════════════════════════════════
-          Section 3.5: 一般的な考え方（initial_fees のみ）
+          Section 3.5: 一般的な考え方（initial_fees のみ・折りたたみ）
       ══════════════════════════════════════════ */}
       {knowledgeCards.length > 0 && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
-            一般的な考え方
-          </p>
-          <p className="text-xs text-slate-400 mb-4 leading-relaxed">
-            ご参考情報として。個別事案の法的判断ではありません。
-          </p>
-          <div className="space-y-4">
-            {knowledgeCards.map((card) => (
-              <div key={card.title} className="border-l-2 border-slate-200 pl-3">
-                <p className="text-xs font-semibold text-slate-600 mb-1">{card.title}</p>
-                <p className="text-xs text-slate-500 leading-relaxed">{card.body}</p>
-              </div>
-            ))}
+        <details className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+          <summary className="flex items-center justify-between px-5 py-4 cursor-pointer select-none hover:bg-slate-50 transition-colors list-none">
+            <div>
+              <p className="text-xs font-semibold text-slate-600">各費用についての一般的な考え方</p>
+              <p className="text-xs text-slate-400 mt-0.5">参考情報（個別事案の法的判断ではありません）</p>
+            </div>
+            <svg className="w-4 h-4 text-slate-400 shrink-0 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </summary>
+          <div className="px-5 pb-5 border-t border-slate-100">
+            <div className="space-y-4 pt-4">
+              {knowledgeCards.map((card) => (
+                <div key={card.title} className="border-l-2 border-slate-200 pl-3">
+                  <p className="text-xs font-semibold text-slate-600 mb-1">{card.title}</p>
+                  <p className="text-xs text-slate-500 leading-relaxed">{card.body}</p>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-slate-400 mt-4 pt-3 border-t border-slate-100 leading-relaxed">
+              詳細は契約書・重要事項説明書・見積書の記載と照らし合わせてご確認ください。
+            </p>
           </div>
-          <p className="text-xs text-slate-400 mt-4 pt-3 border-t border-slate-100 leading-relaxed">
-            詳細は契約書・重要事項説明書・見積書の記載と照らし合わせてご確認ください。
-          </p>
-        </div>
+        </details>
       )}
 
-      {/* ══════════════════════════════════════════
-          Section 4: 今すぐやるべき3ステップ（initial_fees以外）
-      ══════════════════════════════════════════ */}
-      {!situationInfo && (
-        <div className="rounded-2xl bg-slate-50 border border-slate-100 p-5">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">今すぐやるべき3ステップ</h3>
-          <div className="space-y-4">
-            {actionSteps.map((step) => (
-              <div key={step.num} className="flex gap-4 items-start">
-                <div className="shrink-0 w-7 h-7 rounded-full bg-slate-800 text-white text-xs font-bold flex items-center justify-center">
-                  {step.num}
-                </div>
-                <div>
-                  <p className="text-sm font-semibold text-slate-800 leading-tight">{step.title}</p>
-                  <p className="text-xs text-slate-500 mt-1 leading-relaxed">{step.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Section 4: 今すぐやるべき3ステップ → NEW-5（次の行動）に統合済み */}
 
       {/* ══════════════════════════════════════════
           Section 4.5: 次に考えられる選択肢（initial_fees のみ）

@@ -21,36 +21,21 @@ function fmt(n: number) {
 
 export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
   const modeCfg = mode ? MODE_CONFIG[mode] : null;
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loading] = useState(false);
+  const [error] = useState<string | null>(null);
 
   useEffect(() => {
     track("result_cta_viewed", { mode: mode ?? "unknown", placement });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_dRm3co7HebRIewr9Hm7kc00";
+
   async function handlePurchase() {
     if (loading) return;
     track("result_cta_clicked", { mode: mode ?? "unknown", placement });
     track("purchase_started", { mode: mode ?? "unknown", placement });
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/create-checkout-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const data = (await res.json()) as { url?: string; error?: string };
-      if (!res.ok || !data.url) {
-        setError(data.error ?? "決済の準備に失敗しました。再度お試しください。");
-        return;
-      }
-      window.location.href = data.url;
-    } catch {
-      setError("通信エラーが発生しました。再度お試しください。");
-    } finally {
-      setLoading(false);
-    }
+    window.open(STRIPE_PAYMENT_LINK, "_blank");
   }
 
   const Button = ({ label }: { label: string }) => (
@@ -96,9 +81,9 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
         {/* 有料の価値3点 */}
         <ul className="space-y-1">
           {[
-            "あなたの状況・費用・説明状況を反映した個別文面",
+            "この診断内容を反映した個別文面 — 汎用テンプレではありません",
             "確認すべき論点の抜け漏れを防ぐ構成",
-            "丁寧で回答を得やすい表現に整えます",
+            "そのまま送れる状態で取得できます",
           ].map((v) => (
             <li key={v} className="flex items-start gap-1.5 text-xs text-amber-700">
               <svg className="w-3 h-3 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -124,8 +109,8 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
 
         <Button label={modeCfg ? modeCfg.ctaLabel : "そのまま送れる確認メールを取得する（¥980）"} />
 
-        <p className="text-xs text-amber-600 text-center">
-          一度の購入でこの診断に対応した確認メール全文を取得できます
+        <p className="text-xs text-amber-600 text-center font-medium">
+          ¥980 で、今回の診断結果をもとにした確認メール全文を取得
         </p>
         {/* A: タイミング訴求 */}
         <p className="text-xs text-amber-600/70 text-center leading-relaxed">

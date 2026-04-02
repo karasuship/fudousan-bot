@@ -7,11 +7,11 @@ export const metadata = {
 
 export default function DiagnosisPage() {
   return (
-    <div className="max-w-2xl mx-auto px-4 py-12">
-      <div className="mb-8">
+    <div className="max-w-3xl mx-auto px-4 py-10">
+      <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-800 mb-2">相談・診断</h1>
         <p className="text-sm text-slate-500">
-          相談したい場面を選ぶと、確認すべき事項と管理会社への確認メール文案を提示します。
+          相談したい場面を選ぶと、確認すべき費用・ポイントと管理会社への確認メール文案を提示します。
         </p>
       </div>
       <DiagnosisForm />

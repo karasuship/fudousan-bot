@@ -1,32 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { SITE } from "@/lib/siteConfig";
 
 export default function CancelPage() {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleRepurchase() {
-    if (loading) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/create-checkout-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const data = await res.json() as { url?: string; error?: string };
-      if (!res.ok || !data.url) {
-        setError(data.error ?? "決済の準備に失敗しました");
-        return;
-      }
-      window.location.href = data.url;
-    } catch {
-      setError("通信エラーが発生しました。再度お試しください。");
-    } finally {
-      setLoading(false);
-    }
+  function handleRepurchase() {
+    window.open(SITE.stripeLink, "_blank");
   }
 
   return (
@@ -43,19 +22,12 @@ export default function CancelPage() {
         メール文案が必要な場合は、再度購入を行ってください。
       </p>
 
-      {error && (
-        <div className="bg-red-50 border border-red-100 rounded-lg px-4 py-3 text-sm text-red-600 mb-4 max-w-sm mx-auto">
-          {error}
-        </div>
-      )}
-
       <div className="flex flex-col sm:flex-row gap-3 justify-center max-w-sm mx-auto">
         <button
           onClick={handleRepurchase}
-          disabled={loading}
-          className="flex-1 bg-slate-800 text-white text-sm font-medium py-2.5 px-5 rounded-xl hover:bg-slate-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          className="flex-1 bg-slate-800 text-white text-sm font-medium py-2.5 px-5 rounded-xl hover:bg-slate-700 transition-colors"
         >
-          {loading ? "準備中..." : "再度購入する（980円）"}
+          再度購入する（{SITE.priceLabel}）
         </button>
         <Link
           href="/diagnosis"

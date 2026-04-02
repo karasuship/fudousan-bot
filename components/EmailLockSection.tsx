@@ -31,16 +31,14 @@ function extractPreview(text: string): { preview: string; rest: string } {
 }
 
 const DEFAULT_VALUE_PROPS = [
-  "テンプレではなくあなたのケースに最適化された文面",
-  "丁寧・低姿勢で、管理会社が不快にならない表現",
-  "このメールを送るだけで確認が進みます",
-  "費用の根拠・算出方法を具体的に確認できる内容",
-  "交渉ではなく「確認・情報収集」を目的とした安全な文章",
+  "診断内容を反映した個別文面 — 汎用文書ではありません",
+  "確認すべき論点の抜け漏れを防ぐ構成",
+  "丁寧・低姿勢で、管理会社に送れる表現",
+  "「確認・情報収集」を目的とした安全な文章",
 ];
 
 export default function EmailLockSection({ draftEmail, maxRefund, mode }: Props) {
-  const [loading, setLoading] = useState(false);
-  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [loading] = useState(false);
   const { preview, rest } = extractPreview(draftEmail);
   const modeCfg = mode ? MODE_CONFIG[mode] : null;
   const valueProps = modeCfg ? modeCfg.emailValueProps : DEFAULT_VALUE_PROPS;
@@ -51,54 +49,57 @@ export default function EmailLockSection({ draftEmail, maxRefund, mode }: Props)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handlePurchase() {
+  const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_dRm3co7HebRIewr9Hm7kc00";
+
+  function handlePurchase() {
     if (loading) return;
     track("purchase_started", { mode: mode ?? "unknown", source: "email_lock" });
-    setLoading(true);
-    setCheckoutError(null);
-    try {
-      const res = await fetch("/api/create-checkout-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      const data = (await res.json()) as { url?: string; error?: string };
-      if (!res.ok || !data.url) {
-        setCheckoutError(data.error ?? "決済の準備に失敗しました。再度お試しください。");
-        return;
-      }
-      window.location.href = data.url;
-    } catch {
-      setCheckoutError("通信エラーが発生しました。再度お試しください。");
-    } finally {
-      setLoading(false);
-    }
+    window.open(STRIPE_PAYMENT_LINK, "_blank");
   }
 
   return (
     <div className="rounded-2xl border-2 border-slate-800 overflow-hidden">
 
-      {/* ── ヘッダー：価値訴求 ── */}
+      {/* ── ヘッダー：初動キット内容説明 ── */}
       <div className="bg-slate-900 px-5 pt-5 pb-4">
         <div className="flex items-start gap-2 mb-1">
           <svg className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
               d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
           </svg>
-          <h3 className="text-sm font-bold text-white leading-snug">
-            書面での確認が、最も重要なステップです
-          </h3>
+          <div>
+            <p className="text-xs text-amber-400 font-medium mb-0.5">確認初動キット</p>
+            <h3 className="text-sm font-bold text-white leading-snug">
+              書面で確認する。それが根拠を固める唯一の初動です
+            </h3>
+          </div>
         </div>
         <p className="text-xs text-slate-400 leading-relaxed mb-3 ml-6">
-          管理会社への確認メールを送ることは入居者の当然の権利です。
-          適切な確認メールを送ることで、費用の根拠を明確にしてもらえる可能性があります。
+          管理会社へ書面で確認することで、費用の根拠・算出方法の説明を求めることができます。
+          今回の診断内容をもとに、すぐ送れる確認文面を生成します。
         </p>
 
-        {/* 無料診断 → 有料メールの関係説明（initial_fees のみ） */}
-        {mode === "initial_fees" && (
-          <p className="text-xs text-slate-300 leading-relaxed ml-6 mb-3 pb-3 border-b border-white/10">
-            無料診断で整理した確認ポイントをもとに、今回の費用・状況に合わせた個別の確認メールを生成します。
-          </p>
-        )}
+        {/* 初動キットの構成内容 */}
+        <div className="ml-6 mb-3 pb-3 border-b border-white/10">
+          <p className="text-xs text-slate-500 mb-2">初動キットに含まれるもの</p>
+          <ul className="space-y-1.5">
+            {[
+              { icon: "①", label: "状況整理", desc: "今回の診断で検出された論点一覧" },
+              { icon: "②", label: "確認順序", desc: "何を先に確認すべきか、優先順位付き" },
+              { icon: "③", label: "Yes/No分岐", desc: "返答パターン別の次の行動フロー" },
+              { icon: "④", label: "実際の送信文面", desc: "このまま送れる確認文（診断内容反映済み）" },
+              { icon: "⑤", label: "返信後の行動", desc: "回答を受け取った後にやること" },
+            ].map((item) => (
+              <li key={item.icon} className="flex items-start gap-2">
+                <span className="text-xs text-amber-400 font-semibold shrink-0 mt-0.5">{item.icon}</span>
+                <span className="text-xs text-slate-300">
+                  <span className="font-medium">{item.label}</span>
+                  <span className="text-slate-500"> — {item.desc}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
 
         {/* 価値リスト */}
         <ul className="space-y-1.5">
@@ -112,9 +113,29 @@ export default function EmailLockSection({ draftEmail, maxRefund, mode }: Props)
           ))}
         </ul>
 
-        {/* C: 有料価値の可視化 + D: 無料との差分 */}
+        {/* 確認後の流れ */}
+        <div className="mt-3 pt-3 border-t border-white/10">
+          <p className="text-xs text-slate-500 mb-2">初動キットを使った確認フロー</p>
+          <div className="flex items-start gap-2">
+            {[
+              { step: "1", label: "文面を送る", sub: "①〜④を使って初動" },
+              { step: "2", label: "返信を記録する", sub: "③のフローで対応" },
+              { step: "3", label: "次の行動を決める", sub: "⑤で判断を固める" },
+            ].map((s, i) => (
+              <div key={s.step} className="flex-1 flex items-start gap-1.5">
+                {i > 0 && <span className="text-slate-600 text-xs mt-1 shrink-0">→</span>}
+                <div>
+                  <p className="text-xs text-slate-300 font-medium leading-tight">{s.label}</p>
+                  <p className="text-xs text-slate-500 leading-tight">{s.sub}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 送信文面のイメージ */}
         <div className="mt-4 pt-3 border-t border-white/10 space-y-2">
-          <p className="text-xs text-slate-400">▼ 生成される確認メールのイメージ</p>
+          <p className="text-xs text-slate-400">▼ 送信文面（④）のイメージ</p>
           <div className="bg-white/5 rounded-lg px-3 py-2.5 text-xs text-slate-300 leading-relaxed space-y-0.5">
             <p>○○費用について、以下の点を確認させてください。</p>
             <p>・この費用の算出根拠と、契約書上の記載箇所</p>
@@ -123,7 +144,7 @@ export default function EmailLockSection({ draftEmail, maxRefund, mode }: Props)
           </div>
           <p className="text-xs text-slate-500 leading-relaxed">
             ※ あなたの費用・状況・説明状況に合わせて整理されます。
-            汎用テンプレとは異なり、何を聞くか迷わずに送れる状態です。
+            何を聞くか迷わずに送れる状態で提供します。
           </p>
         </div>
       </div>
@@ -133,7 +154,7 @@ export default function EmailLockSection({ draftEmail, maxRefund, mode }: Props)
         {/* 無料で見える冒頭 */}
         <div className="px-5 pt-4 pb-2 border-b border-slate-200">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-slate-400">メール冒頭（プレビュー）</span>
+            <span className="text-xs font-medium text-slate-400">送信文面④（プレビュー）</span>
             <CopyButton
             text={preview}
             label="冒頭をコピー"
@@ -163,7 +184,7 @@ export default function EmailLockSection({ draftEmail, maxRefund, mode }: Props)
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
-              <span className="text-xs font-medium">全文は有料版で確認できます</span>
+              <span className="text-xs font-medium">初動キット全文は有料版で確認できます</span>
             </div>
 
             {/* ROI バッジ（maxRefund がある場合） */}
@@ -173,12 +194,6 @@ export default function EmailLockSection({ draftEmail, maxRefund, mode }: Props)
                 <span className="text-amber-600"> の確認で、最大 </span>
                 <span className="text-amber-700 font-semibold">{fmt(maxRefund)}</span>
                 <span className="text-amber-600"> の差が生まれる可能性</span>
-              </div>
-            )}
-
-            {checkoutError && (
-              <div className="bg-red-50 border border-red-100 rounded-lg px-3 py-2 text-xs text-red-600 text-center max-w-xs">
-                {checkoutError}
               </div>
             )}
 
@@ -210,7 +225,7 @@ export default function EmailLockSection({ draftEmail, maxRefund, mode }: Props)
             </button>
 
             <p className="text-xs text-slate-400 text-center">
-              一度の購入で今回の診断に対応したメール全文を取得
+              一度の購入で今回の診断に対応した初動キット全文を取得
             </p>
           </div>
         </div>
@@ -219,7 +234,7 @@ export default function EmailLockSection({ draftEmail, maxRefund, mode }: Props)
       {/* ── フッター免責 ── */}
       <div className="bg-slate-100 px-5 py-3 border-t border-slate-200">
         <p className="text-xs text-slate-400 leading-relaxed text-center">
-          このメールは「確認・情報収集」が目的です。法的請求・交渉の代行ではありません。
+          この初動キットは「確認・情報収集」が目的です。法的請求・交渉の代行ではありません。
           ※ 個別の法律問題は弁護士等にご相談ください。
         </p>
       </div>
