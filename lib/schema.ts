@@ -1,35 +1,112 @@
 import { z } from "zod";
 
-const FEE_ENUM = z.enum([
-  "renewal_fee",
-  "recontracting_fee",
-  "agency_fee",
-  "key_exchange",
-  "cleaning",
-  "guarantor",
-  "other",
-]);
-
 const EMAIL_TONE = z.enum(["polite", "firm", "factual"]);
 const FREE_TEXT = z.string().max(1000).optional();
 
-// ─── 既存スキーマ（後方互換維持）────────────────────────────────────────
-export const diagnosisInputSchema = z.object({
-  contractType: z.enum(["ordinary", "fixed_term", "unknown"]),
-  phase: z.enum(["move_in", "renewal", "recontracting", "move_out", "other"]),
-  fees: z.array(FEE_ENUM).min(1, "費用を1つ以上選択してください"),
-  amount: z.number().positive().optional(),
-  contractMention: z.enum(["yes", "unknown"]),
-  explanation: z.enum(["yes", "insufficient", "no"]),
-  consentStructure: z.enum(["yes", "unknown"]),
-  managementIssues: z.boolean(),
-  freeText: FREE_TEXT,
-  emailTone: EMAIL_TONE,
+const keyExchangeDetailSchema = z.object({
+  type: z.literal("key_exchange"),
+  exchangeConfirmed: z.enum(["confirmed", "unconfirmed", "not_done"]),
+  isNewBuilding: z.boolean(),
+  hasReceipt: z.boolean(),
 });
 
-export type DiagnosisInputSchema = z.infer<typeof diagnosisInputSchema>;
+const cleaningDetailSchema = z.object({
+  type: z.literal("cleaning"),
+  wasExplainedAsMandatory: z.boolean(),
+  hasContractBasis: z.enum(["yes", "no", "unknown"]),
+  hasInvoice: z.boolean(),
+  includesDisinfection: z.boolean(),
+});
 
-// ─── モード別スキーマ ────────────────────────────────────────────────────
+const agencyDetailSchema = z.object({
+  type: z.literal("agency"),
+  amountMonths: z.enum(["half", "one", "over", "unknown"]),
+  hasWrittenConsent: z.boolean(),
+  bothSidesCharged: z.enum(["yes", "no", "unknown"]),
+});
+
+const guarantorDetailSchema = z.object({
+  type: z.literal("guarantor"),
+  wasMandatory: z.boolean(),
+  hadChoiceOfCompany: z.boolean(),
+  hasRenewalFee: z.boolean(),
+});
+
+const supportPlanDetailSchema = z.object({
+  type: z.literal("support_plan"),
+  planName: z.string(),
+  wasExplained: z.boolean(),
+  couldRefuse: z.boolean(),
+});
+
+const documentFeeDetailSchema = z.object({
+  type: z.literal("document_fee"),
+  labelOnInvoice: z.string(),
+  hasExplanation: z.boolean(),
+});
+
+const renewalDetailSchema = z.object({
+  type: z.literal("renewal"),
+  contractType: z.enum(["ordinary", "fixed_term", "unknown"]),
+  hasContractBasis: z.enum(["yes", "no", "unknown"]),
+  amountBasis: z.string(),
+});
+
+const unknownFeeDetailSchema = z.object({
+  type: z.literal("unknown"),
+  labelOnInvoice: z.string(),
+});
+
+const factDetailSchema = z.discriminatedUnion("type", [
+  keyExchangeDetailSchema,
+  cleaningDetailSchema,
+  agencyDetailSchema,
+  guarantorDetailSchema,
+  supportPlanDetailSchema,
+  documentFeeDetailSchema,
+  renewalDetailSchema,
+  unknownFeeDetailSchema,
+]);
+
+const factItemSchema = z.object({
+  perceivedLabel: z.string(),
+  realityCategory: z.enum([
+    "key_exchange",
+    "cleaning",
+    "agency",
+    "guarantor",
+    "support_plan",
+    "document_fee",
+    "fire_insurance",
+    "renewal",
+    "ad_fee",
+    "unknown",
+  ]),
+  amount: z.number().positive().optional(),
+  detail: factDetailSchema,
+});
+
+export const initialFeesSchema = z.object({
+  mode: z.literal("initial_fees"),
+  situation: z.enum(["pre_estimate", "pre_sign", "pre_payment", "paid"]),
+  emailTone: EMAIL_TONE,
+  freeText: FREE_TEXT,
+  explanation: z.enum(["written", "oral", "none", "pressured", "rushed"]),
+  couldRefuse: z.enum(["yes", "no", "refused_and_pressured", "told_no_contract", "unknown"]),
+  hasDocuments: z.enum(["yes", "no", "unknown"]),
+  facts: z.array(factItemSchema).min(1, "費用を1つ以上入力してください"),
+});
+
+export const renewalSchema = z.object({
+  mode: z.literal("renewal"),
+  situation: z.enum(["pre_estimate", "pre_sign", "pre_payment", "paid"]),
+  emailTone: EMAIL_TONE,
+  freeText: FREE_TEXT,
+  explanation: z.enum(["written", "oral", "none", "pressured", "rushed"]),
+  couldRefuse: z.enum(["yes", "no", "refused_and_pressured", "told_no_contract", "unknown"]),
+  hasDocuments: z.enum(["yes", "no", "unknown"]),
+  facts: z.array(factItemSchema).min(1, "費用を1つ以上入力してください"),
+});
 
 export const contractReviewSchema = z.object({
   mode: z.literal("contract_review"),
@@ -45,7 +122,7 @@ export const contractReviewSchema = z.object({
 
 export const maintenanceSchema = z.object({
   mode: z.literal("maintenance"),
-  issueType: z.string().min(1, "不具合の種類を選択してください"),
+  issueType: z.string().min(1),
   issueDuration: z.string().min(1),
   lifeImpact: z.string().min(1),
   alreadyContacted: z.boolean(),
@@ -57,7 +134,11 @@ export const maintenanceSchema = z.object({
 
 export const moveOutSchema = z.object({
   mode: z.literal("move_out"),
-  fees: z.array(FEE_ENUM).min(1, "費用を1つ以上選択してください"),
+  facts: z.array(z.object({
+    realityCategory: z.enum(["cleaning", "key_exchange", "repair", "unknown"]),
+    amount: z.number().positive().optional(),
+    labelOnInvoice: z.string(),
+  })).min(1),
   amount: z.number().positive().optional(),
   hasOwnerFault: z.boolean(),
   isNormalWear: z.boolean(),
@@ -80,3 +161,12 @@ export const depositRefundSchema = z.object({
   emailTone: EMAIL_TONE,
   freeText: FREE_TEXT,
 });
+
+export const diagnosisSchema = z.discriminatedUnion("mode", [
+  initialFeesSchema,
+  renewalSchema,
+  contractReviewSchema,
+  maintenanceSchema,
+  moveOutSchema,
+  depositRefundSchema,
+]);

@@ -23,6 +23,7 @@ export type Issue = {
   checkPoints: string[];
   /** 具体的行動（命令形） */
   nextAction: string[];
+  severity: "high" | "medium" | "low";
 };
 
 export const ISSUE_DB: Issue[] = [
@@ -34,7 +35,8 @@ export const ISSUE_DB: Issue[] = [
     category: "初期費用",
     title: "仲介手数料の上限規定",
     rule: "宅建業法46条：仲介手数料の上限は賃料1ヶ月分＋消費税。借主から1ヶ月分を受け取るには借主の書面による承諾が必要。承諾なき場合は原則0.5ヶ月分が上限。",
-    condition: (input) => input.fees.includes("agency_fee"),
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "agency") ?? false,
     explanation:
       "仲介手数料が請求されている。宅建業法46条の上限規定と照合が必要。承諾の有無・金額の根拠が確認されていない状態。",
     checkPoints: [
@@ -47,6 +49,7 @@ export const ISSUE_DB: Issue[] = [
       "重要事項説明書の仲介手数料記載箇所を特定する",
       "金額または承諾方法に疑問がある場合は書面で根拠説明を求める",
     ],
+    severity: "high",
   },
   {
     id: "ad_fee_disguised",
@@ -54,19 +57,20 @@ export const ISSUE_DB: Issue[] = [
     title: "広告料（AD）の費用転嫁",
     rule: "広告料（AD）は貸主が仲介業者に支払う業者間費用。借主に「広告費」「物件掲載費」等の名目で請求するのは費用の名目と実態の不一致にあたる。",
     condition: (input) =>
-      input.fees.includes("other") || input.concernTheme === "unknown",
+      input.facts?.some((f: any) => f.realityCategory === "unknown" || f.realityCategory === "ad_fee") ?? false,
     explanation:
       "名目不明・その他費用が含まれており、広告料の借主転嫁がないか確認が必要な状態。費用の名目と実態が一致していない可能性がある。",
     checkPoints: [
       "「広告費」「AD」「物件掲載費」等の名目で請求されていないか",
       "名目不明費用の実態（何のサービスへの対価か）が書面で説明されているか",
-      "その費用の受益者が借主か貸主か・仲介業者かを確認したか",
+      "その費用の受益者（借主・貸主・仲介業者）が明確か",
     ],
     nextAction: [
       "全費用項目の名目を一覧化する",
       "広告費・AD・物件掲載等の名目がある場合、請求根拠を書面で確認する",
       "借主が受益者でない費用については返還・取消の根拠を確認する",
     ],
+    severity: "high",
   },
   {
     id: "dual_agency_undisclosed",
@@ -74,7 +78,8 @@ export const ISSUE_DB: Issue[] = [
     title: "両手仲介構造の未説明",
     rule: "両手仲介では同一業者が貸主・借主双方から手数料を受け取る。この場合、借主から受け取れる手数料は原則0.5ヶ月分。両手仲介の事実と手数料算出根拠の説明が必要。",
     condition: (input) =>
-      input.fees.includes("agency_fee") && input.explanation !== "yes",
+      (input.facts?.some((f: any) => f.realityCategory === "agency") ?? false) &&
+      input.explanation !== "written",
     explanation:
       "仲介手数料の説明が不十分または未説明。両手仲介の場合、手数料算出構造の説明が行われていない可能性がある。",
     checkPoints: [
@@ -86,13 +91,15 @@ export const ISSUE_DB: Issue[] = [
       "仲介業者に「貸主側からも手数料を受け取っているか」を書面で確認する",
       "両手仲介の場合、借主負担の手数料額の根拠を書面で求める",
     ],
+    severity: "medium",
   },
   {
     id: "key_exchange_no_confirmation",
     category: "初期費用",
     title: "鍵交換の実施有無が未確認",
     rule: "鍵交換代は鍵交換の実施を前提とする費用。実施されていない場合、費用の実態がない状態での請求となり、名目と実態が不一致になる。",
-    condition: (input) => input.fees.includes("key_exchange"),
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "key_exchange") ?? false,
     explanation:
       "鍵交換代が請求されている。鍵交換の実施有無・実施主体・時期が確認されていない状態。",
     checkPoints: [
@@ -104,6 +111,7 @@ export const ISSUE_DB: Issue[] = [
       "管理会社に「鍵交換の実施日・業者・費用明細」を書面で確認する",
       "実施が確認できない場合、費用の根拠を書面で求める",
     ],
+    severity: "medium",
   },
   {
     id: "key_exchange_no_contract_basis",
@@ -111,7 +119,8 @@ export const ISSUE_DB: Issue[] = [
     title: "鍵交換代の契約書記載なし",
     rule: "鍵交換代の借主負担は契約書・重要事項説明書への明記が必要。記載がない場合、費用負担の根拠が存在しない。",
     condition: (input) =>
-      input.fees.includes("key_exchange") && input.contractMention !== "yes",
+      (input.facts?.some((f: any) => f.realityCategory === "key_exchange") ?? false) &&
+      input.hasDocuments !== "yes",
     explanation:
       "鍵交換代が選択されているが契約書記載が未確認。費用負担の根拠となる条項が特定されていない。",
     checkPoints: [
@@ -122,13 +131,15 @@ export const ISSUE_DB: Issue[] = [
       "契約書・重要事項説明書で鍵交換代の記載箇所を特定する",
       "記載がない場合は任意費用として断れるか書面で確認する",
     ],
+    severity: "medium",
   },
   {
     id: "cleaning_nature_unclear",
     category: "初期費用",
     title: "入居前清掃費の性質確認",
     rule: "入居前クリーニング代は借主の便益のための費用であり任意の場合がある。契約書への記載と「任意か必須か」の説明が必要。任意費用を必須として請求するのは説明と実態の不一致。",
-    condition: (input) => input.fees.includes("cleaning"),
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "cleaning") ?? false,
     explanation:
       "清掃費が請求されている。任意か必須か・金額の算出根拠の説明が確認されていない状態。",
     checkPoints: [
@@ -141,6 +152,7 @@ export const ISSUE_DB: Issue[] = [
       "任意の場合は断れるか書面で確認する",
       "他社見積もりと比較して金額水準を把握する",
     ],
+    severity: "medium",
   },
   {
     id: "cleaning_optional_not_explained",
@@ -148,7 +160,8 @@ export const ISSUE_DB: Issue[] = [
     title: "清掃費の任意性が未説明",
     rule: "任意費用は借主に選択権がある。任意であることの説明なく必須費用と同列に提示された場合、説明と同意の構造が崩れている。",
     condition: (input) =>
-      input.fees.includes("cleaning") && input.explanation !== "yes",
+      (input.facts?.some((f: any) => f.realityCategory === "cleaning") ?? false) &&
+      input.explanation !== "written",
     explanation:
       "清掃費の説明が不十分または未説明。任意か必須かの説明が行われていない状態。",
     checkPoints: [
@@ -159,13 +172,15 @@ export const ISSUE_DB: Issue[] = [
       "管理会社・仲介会社に任意か必須かを書面で確認する",
       "任意と確認できた場合は断る意思を書面で伝える",
     ],
+    severity: "medium",
   },
   {
     id: "guarantor_mandatory_basis",
     category: "初期費用",
     title: "保証会社加入の必須化と根拠",
     rule: "保証会社への加入を契約条件とする場合、重要事項説明書への記載・費用内訳・更新時の費用発生を説明する義務がある。加入強制の根拠が契約書に明記されていない場合、費用負担の根拠が欠如している。",
-    condition: (input) => input.fees.includes("guarantor"),
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "guarantor") ?? false,
     explanation:
       "保証会社費用が請求されている。加入の必須性・費用内訳・更新時費用の説明が確認されていない状態。",
     checkPoints: [
@@ -179,6 +194,7 @@ export const ISSUE_DB: Issue[] = [
       "加入が必須の根拠条項を特定する",
       "更新時の保証料発生有無を書面で確認する",
     ],
+    severity: "medium",
   },
   {
     id: "guarantor_no_explanation",
@@ -186,7 +202,8 @@ export const ISSUE_DB: Issue[] = [
     title: "保証会社費用の説明なし",
     rule: "保証会社費用は重要事項説明の対象。費用内訳・加入条件・更新時費用について口頭と書面での説明が義務となる。",
     condition: (input) =>
-      input.fees.includes("guarantor") && input.explanation !== "yes",
+      (input.facts?.some((f: any) => f.realityCategory === "guarantor") ?? false) &&
+      input.explanation !== "written",
     explanation:
       "保証会社費用について説明が不十分または未説明。説明義務との構造的不一致がある。",
     checkPoints: [
@@ -197,13 +214,15 @@ export const ISSUE_DB: Issue[] = [
       "重要事項説明書の保証会社欄を確認する",
       "説明内容と請求額の一致を書面で確認する",
     ],
+    severity: "medium",
   },
   {
     id: "guarantor_renewal_cost",
     category: "初期費用",
     title: "保証会社更新料の自動発生",
     rule: "保証会社への更新保証料は、保証委託契約書に明記されている場合のみ請求できる。更新ごとに自動発生することを事前に説明しなかった場合、費用提示の順序と説明義務に問題がある。",
-    condition: (input) => input.fees.includes("guarantor"),
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "guarantor") ?? false,
     explanation:
       "保証会社費用が選択されている。更新時の保証料発生の事前説明有無を確認する必要がある。",
     checkPoints: [
@@ -214,6 +233,7 @@ export const ISSUE_DB: Issue[] = [
       "保証委託契約書の更新料条項を確認する",
       "説明を受けていない場合は書面で確認する",
     ],
+    severity: "low",
   },
   {
     id: "fee_order_late_presentation",
@@ -234,13 +254,15 @@ export const ISSUE_DB: Issue[] = [
       "提示タイミングと重要事項説明書の記載を照合する",
       "説明タイミングに疑問がある費用を個別に書面で確認する",
     ],
+    severity: "medium",
   },
   {
     id: "renewal_fee_amount_basis",
     category: "初期費用",
     title: "更新料の金額算出根拠",
     rule: "更新料は賃料の○ヶ月分等、算出方法が契約書に明記される必要がある。算出根拠のない金額での更新料請求は費用の名目と実態の不一致となる。",
-    condition: (input) => input.fees.includes("renewal_fee"),
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "renewal") ?? false,
     explanation:
       "更新料が請求されている。金額の算出根拠が契約書で確認されていない状態。",
     checkPoints: [
@@ -251,6 +273,7 @@ export const ISSUE_DB: Issue[] = [
       "契約書の更新料条項と請求額を照合する",
       "不一致があれば書面で根拠説明を求める",
     ],
+    severity: "medium",
   },
   {
     id: "ad_vs_agency_double_charge",
@@ -258,7 +281,8 @@ export const ISSUE_DB: Issue[] = [
     title: "仲介手数料と広告料の二重請求",
     rule: "仲介手数料（借主負担）と広告料AD（貸主→仲介業者）は別の費用。同一取引で両方を借主に請求するのは費用名目と実態の二重の不一致となる。",
     condition: (input) =>
-      input.fees.includes("agency_fee") && input.fees.includes("other"),
+      (input.facts?.some((f: any) => f.realityCategory === "agency") ?? false) &&
+      (input.facts?.some((f: any) => f.realityCategory === "unknown" || f.realityCategory === "ad_fee") ?? false),
     explanation:
       "仲介手数料とその他費用が両方選択されている。広告料の転嫁や二重請求がないか確認が必要。",
     checkPoints: [
@@ -269,6 +293,7 @@ export const ISSUE_DB: Issue[] = [
       "全費用の名目を列挙し、広告費・AD関連の名目がないか確認する",
       "二重請求の疑いがある場合は書面で根拠確認をする",
     ],
+    severity: "high",
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -280,7 +305,7 @@ export const ISSUE_DB: Issue[] = [
     title: "定期借家契約での更新料請求",
     rule: "定期借家契約（借地借家法38条）に「更新」は存在しない。期間満了後は「再契約」となる。定期借家での更新料請求は名目（更新料）と実態（再契約）の不一致であり、根拠確認が必要。",
     condition: (input) =>
-      input.fees.includes("renewal_fee"),
+      input.facts?.some((f: any) => f.realityCategory === "renewal") ?? false,
     explanation:
       "更新料が選択されている。定期借家契約の場合は更新概念がなく、再契約との違いの確認が必要。",
     checkPoints: [
@@ -293,13 +318,15 @@ export const ISSUE_DB: Issue[] = [
       "定期借家の場合は更新料の請求根拠を書面で確認する",
       "普通借家の場合は更新料条項の記載箇所を特定する",
     ],
+    severity: "high",
   },
   {
     id: "recontracting_vs_new_contract",
     category: "契約",
     title: "再契約と新規契約の違い",
     rule: "再契約料は定期借家契約終了後の新契約に際して求められる費用。法的必須ではない。契約書への明記と説明がなければ根拠のない費用となる。新規契約と異なり、既存の契約関係の延長として当然に発生するものではない。",
-    condition: (input) => input.fees.includes("recontracting_fee"),
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "renewal") ?? false,
     explanation:
       "再契約料が選択されている。法的必須性のない費用として根拠確認が必要な状態。",
     checkPoints: [
@@ -312,6 +339,7 @@ export const ISSUE_DB: Issue[] = [
       "記載がない場合は根拠を書面で確認する",
       "再契約料の算出方法（月額の何ヶ月分か等）を確認する",
     ],
+    severity: "medium",
   },
   {
     id: "renewal_fee_no_contract_mention",
@@ -319,7 +347,8 @@ export const ISSUE_DB: Issue[] = [
     title: "更新料の契約書記載なし",
     rule: "更新料の請求には契約書・重要事項説明書への明記が必要。記載のない更新料は請求根拠が存在しない。",
     condition: (input) =>
-      input.fees.includes("renewal_fee") && input.contractMention !== "yes",
+      (input.facts?.some((f: any) => f.realityCategory === "renewal") ?? false) &&
+      input.hasDocuments !== "yes",
     explanation:
       "更新料が選択されているが、契約書記載が未確認。費用根拠の特定ができていない状態。",
     checkPoints: [
@@ -330,6 +359,7 @@ export const ISSUE_DB: Issue[] = [
       "契約書・重要事項説明書の更新料記載を確認する",
       "記載がない場合は書面で根拠説明を求める",
     ],
+    severity: "high",
   },
   {
     id: "recontracting_amount_no_basis",
@@ -337,8 +367,8 @@ export const ISSUE_DB: Issue[] = [
     title: "再契約料の金額根拠不明",
     rule: "再契約料の金額は契約書に明記されていなければ根拠がない。月額の何ヶ月分等の算出方法が示されない再契約料の請求は、名目と金額の根拠が崩れた状態となる。",
     condition: (input) =>
-      input.fees.includes("recontracting_fee") &&
-      input.contractMention !== "yes",
+      (input.facts?.some((f: any) => f.realityCategory === "renewal") ?? false) &&
+      input.hasDocuments !== "yes",
     explanation:
       "再契約料が選択されているが契約書記載が未確認。金額の算出根拠が特定されていない。",
     checkPoints: [
@@ -349,6 +379,7 @@ export const ISSUE_DB: Issue[] = [
       "契約書・重要事項説明書で再契約料の記載を確認する",
       "記載がない場合、書面で請求根拠の説明を求める",
     ],
+    severity: "high",
   },
   {
     id: "contract_type_unknown",
@@ -356,8 +387,7 @@ export const ISSUE_DB: Issue[] = [
     title: "契約種別の未確認（普通借家vs定期借家）",
     rule: "普通借家と定期借家は更新・更新料の扱いが根本的に異なる。定期借家では更新はなく再契約となるため、費用の性質が変わる。契約種別の確認は費用判断の前提。",
     condition: (input) =>
-      input.fees.includes("renewal_fee") ||
-      input.fees.includes("recontracting_fee"),
+      input.facts?.some((f: any) => f.realityCategory === "renewal") ?? false,
     explanation:
       "更新料または再契約料が選択されている。契約種別が確認されていない状態では費用の根拠判断ができない。",
     checkPoints: [
@@ -368,6 +398,7 @@ export const ISSUE_DB: Issue[] = [
       "契約書の契約種別（普通借家/定期借家）を確認する",
       "定期借家の場合は更新料の請求根拠を再確認する",
     ],
+    severity: "medium",
   },
   {
     id: "special_clause_no_explanation",
@@ -375,7 +406,7 @@ export const ISSUE_DB: Issue[] = [
     title: "特約の説明なし",
     rule: "特約は借主に不利な条件を課すものが多く、内容・根拠・金額について口頭説明と書面記載が必要。説明なく署名された特約は有効性の確認対象となる。",
     condition: (input) =>
-      input.explanation !== "yes" && input.mode === "contract_review",
+      input.explanation !== "written" && input.mode === "contract_review",
     explanation:
       "契約書チェックモードで説明が不十分または未説明。特約の説明構造に問題がある。",
     checkPoints: [
@@ -387,6 +418,7 @@ export const ISSUE_DB: Issue[] = [
       "特約の内容・根拠を書面で確認する",
       "同意の形式（どの書面に署名したか）を特定する",
     ],
+    severity: "medium",
   },
   {
     id: "penalty_clause_three_requirements",
@@ -405,6 +437,7 @@ export const ISSUE_DB: Issue[] = [
       "契約書のペナルティ条項を特定し3要件を確認する",
       "要件を欠く条項については書面で根拠説明を求める",
     ],
+    severity: "medium",
   },
   {
     id: "move_out_special_clause_basis",
@@ -423,6 +456,7 @@ export const ISSUE_DB: Issue[] = [
       "契約書の退去時特約を確認する",
       "通常損耗の負担区分が正確に規定されているか確認する",
     ],
+    severity: "medium",
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -434,7 +468,8 @@ export const ISSUE_DB: Issue[] = [
     title: "費用の説明を受けていない",
     rule: "重要事項説明（宅建業法35条）では費用の名目・金額・算出根拠について口頭での説明が義務。説明なしの費用請求は説明義務との構造的不一致となる。",
     condition: (input) =>
-      input.explanation === "no" && input.fees.length > 0,
+      (input.explanation === "none" || input.explanation === "pressured" || input.explanation === "rushed") &&
+      (input.facts?.length ?? 0) > 0,
     explanation:
       "費用について説明を受けていない。宅建業法上の説明義務との不一致がある状態。",
     checkPoints: [
@@ -446,13 +481,14 @@ export const ISSUE_DB: Issue[] = [
       "重要事項説明書を手元に確認し費用の記載を照合する",
       "説明されていない費用を特定し書面で根拠説明を求める",
     ],
+    severity: "high",
   },
   {
     id: "insufficient_explanation_fees",
     category: "説明",
     title: "費用の説明が不十分",
     rule: "重要事項説明での説明は費用の名目・金額・算出根拠まで含む。形式的な説明では不十分とされる場合がある。説明の質が低い場合、実質的な同意が成立していない可能性がある。",
-    condition: (input) => input.explanation === "insufficient",
+    condition: (input) => input.explanation === "oral",
     explanation:
       "費用の説明が不十分。説明の質・内容に問題がある状態。",
     checkPoints: [
@@ -464,6 +500,7 @@ export const ISSUE_DB: Issue[] = [
       "説明が不十分だった費用を特定する",
       "書面で補足説明を求める",
     ],
+    severity: "medium",
   },
   {
     id: "consent_structure_unclear",
@@ -471,7 +508,7 @@ export const ISSUE_DB: Issue[] = [
     title: "同意の経緯が不明確",
     rule: "費用への同意は内容を理解した上で明示的に行われる必要がある。いつ・どの書面で同意したかが不明確な場合、同意の有効性の確認が必要。",
     condition: (input) =>
-      input.contractMention !== "yes" && input.fees.length > 0,
+      input.hasDocuments !== "yes" && (input.facts?.length ?? 0) > 0,
     explanation:
       "費用の契約書記載が未確認。どの書面でいつ同意したかが特定されていない状態。",
     checkPoints: [
@@ -482,13 +519,15 @@ export const ISSUE_DB: Issue[] = [
       "署名した書面（契約書・重要事項説明書・その他）を全て確認する",
       "各費用の記載箇所を特定する",
     ],
+    severity: "medium",
   },
   {
     id: "label_reality_mismatch",
     category: "説明",
     title: "費用名目と実態の不一致",
     rule: "費用の名目（名称）と実際のサービス内容・受益者が一致しない場合、費用の根拠が崩れる。名目不明・曖昧な費用は「名目との一致」軸で確認が必要。",
-    condition: (input) => input.fees.includes("other"),
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "unknown") ?? false,
     explanation:
       "名目不明・その他費用が選択されている。費用名称と実態サービスの対応が確認されていない状態。",
     checkPoints: [
@@ -500,6 +539,7 @@ export const ISSUE_DB: Issue[] = [
       "全費用の名目を一覧化する",
       "名目が不明確な費用の実態と根拠を書面で確認する",
     ],
+    severity: "medium",
   },
   {
     id: "mandatory_vs_optional_confusion",
@@ -507,10 +547,12 @@ export const ISSUE_DB: Issue[] = [
     title: "任意費用を必須と誤認させる説明",
     rule: "任意費用（消毒・サポートプラン等）を必須費用と同一に提示する説明は、借主の選択機会を奪う。任意費用には「断れる旨」の説明が必要。断れることを説明せずに請求するのは説明と同意の構造的欠陥。",
     condition: (input) =>
-      (input.fees.includes("cleaning") ||
-        input.fees.includes("key_exchange") ||
-        input.fees.includes("other")) &&
-      input.explanation !== "yes",
+      (input.facts?.some((f: any) =>
+        f.realityCategory === "cleaning" ||
+        f.realityCategory === "key_exchange" ||
+        f.realityCategory === "unknown"
+      ) ?? false) &&
+      input.explanation !== "written",
     explanation:
       "任意の可能性がある費用（清掃・鍵交換・その他）の説明が不十分。選択権の説明が行われていない。",
     checkPoints: [
@@ -521,6 +563,7 @@ export const ISSUE_DB: Issue[] = [
       "各費用の任意・必須の区別を書面で確認する",
       "任意と確認できた費用は断る意思を書面で伝える",
     ],
+    severity: "high",
   },
   {
     id: "oral_explanation_absent",
@@ -528,7 +571,10 @@ export const ISSUE_DB: Issue[] = [
     title: "口頭説明の欠如",
     rule: "宅建業者は重要事項説明書を交付するだけでなく、宅建士による口頭での説明が義務（宅建業法35条）。書面交付のみでは説明義務を果たしていない。",
     condition: (input) =>
-      input.explanation === "no" || input.explanation === "insufficient",
+      input.explanation === "none" ||
+      input.explanation === "pressured" ||
+      input.explanation === "rushed" ||
+      input.explanation === "oral",
     explanation:
       "口頭説明が不十分または未実施。書面交付のみでは宅建業法上の説明義務を満たさない。",
     checkPoints: [
@@ -540,6 +586,7 @@ export const ISSUE_DB: Issue[] = [
       "重要事項説明書の交付と説明を受けたか確認する",
       "説明を受けていない項目を特定し書面で説明を求める",
     ],
+    severity: "medium",
   },
   {
     id: "multiple_fees_individual_explanation_missing",
@@ -547,7 +594,7 @@ export const ISSUE_DB: Issue[] = [
     title: "複数費用の個別説明なし",
     rule: "複数の費用についての説明義務は各費用について個別に果たされる必要がある。まとめての説明では各費用の算出根拠・任意性が不明確になる。",
     condition: (input) =>
-      input.fees.length >= 3 && input.explanation !== "yes",
+      (input.facts?.length ?? 0) >= 3 && input.explanation !== "written",
     explanation:
       "3種類以上の費用が選択されているが説明が不十分。各費用の個別説明が行われていない状態。",
     checkPoints: [
@@ -558,6 +605,7 @@ export const ISSUE_DB: Issue[] = [
       "説明が不十分な費用を特定する",
       "各費用について個別に書面で根拠説明を求める",
     ],
+    severity: "medium",
   },
   {
     id: "pre_sign_no_written_confirmation",
@@ -575,6 +623,7 @@ export const ISSUE_DB: Issue[] = [
       "疑問点をメールで質問し書面回答を受け取ってから署名する",
       "「書面による回答を受け取るまで署名しない」と意思表示する",
     ],
+    severity: "high",
   },
   {
     id: "fee_presentation_transparency",
@@ -583,7 +632,7 @@ export const ISSUE_DB: Issue[] = [
     rule: "費用は重要事項説明の段階で全て開示されるべきもの。契約直前・支払い直前に新たな費用が追加提示される場合、説明の透明性に問題がある。追加提示された費用への同意は圧力下での同意となる場合がある。",
     condition: (input) =>
       (input.situation === "pre_sign" || input.situation === "pre_payment") &&
-      input.explanation !== "yes",
+      input.explanation !== "written",
     explanation:
       "署名直前または支払い直前に費用説明が不十分。提示タイミングと透明性の確認が必要な状態。",
     checkPoints: [
@@ -594,6 +643,7 @@ export const ISSUE_DB: Issue[] = [
       "全費用が重要事項説明書に記載されているか照合する",
       "新たに追加された費用の根拠を書面で確認する",
     ],
+    severity: "medium",
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -605,7 +655,8 @@ export const ISSUE_DB: Issue[] = [
     title: "鍵交換が実施されていない可能性",
     rule: "鍵交換代は鍵交換の実施を前提とする費用。実施なく費用を請求するのは費用の実態がない状態での請求であり、名目と実態の不一致にあたる。",
     condition: (input) =>
-      input.fees.includes("key_exchange") && input.explanation !== "yes",
+      (input.facts?.some((f: any) => f.realityCategory === "key_exchange") ?? false) &&
+      input.explanation !== "written",
     explanation:
       "鍵交換代の費用が選択されているが説明が不十分。実施確認が行われていない可能性がある。",
     checkPoints: [
@@ -617,6 +668,7 @@ export const ISSUE_DB: Issue[] = [
       "管理会社に「鍵交換の実施日・業者・費用明細」を書面で確認する",
       "実施が確認できない場合は費用の根拠を書面で求める",
     ],
+    severity: "medium",
   },
   {
     id: "cleaning_no_evidence",
@@ -624,7 +676,8 @@ export const ISSUE_DB: Issue[] = [
     title: "クリーニング実施の証拠なし",
     rule: "清掃費は実際のクリーニング実施を前提とする費用。実施業者・内容・費用内訳が示されない場合、実態の確認が必要。費用の実態がない場合は名目と実態の不一致となる。",
     condition: (input) =>
-      input.fees.includes("cleaning") && input.contractMention !== "yes",
+      (input.facts?.some((f: any) => f.realityCategory === "cleaning") ?? false) &&
+      input.hasDocuments !== "yes",
     explanation:
       "清掃費が選択されているが根拠が未確認。実施の裏付けが確認されていない状態。",
     checkPoints: [
@@ -636,6 +689,7 @@ export const ISSUE_DB: Issue[] = [
       "クリーニング業者・実施内容・費用明細を書面で確認する",
       "費用が市場価格と大幅に乖離している場合は根拠説明を求める",
     ],
+    severity: "medium",
   },
   {
     id: "no_entry_photos",
@@ -654,6 +708,7 @@ export const ISSUE_DB: Issue[] = [
       "入居時の状況を証明できる記録（写真・書面）を探す",
       "入居時から存在した損耗について管理会社と照合する",
     ],
+    severity: "medium",
   },
   {
     id: "contract_not_matched",
@@ -661,7 +716,7 @@ export const ISSUE_DB: Issue[] = [
     title: "契約書と請求の照合未実施",
     rule: "費用請求は契約書・重要事項説明書の記載条項に基づく必要がある。照合なき費用支払いは、根拠のない費用を支払うリスクを生む。",
     condition: (input) =>
-      input.contractMention !== "yes" && input.fees.length > 0,
+      input.hasDocuments !== "yes" && (input.facts?.length ?? 0) > 0,
     explanation:
       "契約書記載が未確認の状態で費用が選択されている。照合が実施されていない状態。",
     checkPoints: [
@@ -673,6 +728,7 @@ export const ISSUE_DB: Issue[] = [
       "各費用の記載箇所を特定する",
       "記載のない費用は書面で根拠確認をする",
     ],
+    severity: "medium",
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -684,7 +740,8 @@ export const ISSUE_DB: Issue[] = [
     title: "管理不備（害虫・害獣）の存在",
     rule: "賃貸人には貸室を使用収益に適した状態に維持する義務がある（民法606条）。害虫・害獣の発生は管理義務違反となりえ、費用負担の相殺対象となる場合がある。",
     condition: (input) =>
-      input.mode === "maintenance" || input.concernTheme === "unknown",
+      input.mode === "maintenance" ||
+      (input.facts?.some((f: any) => f.realityCategory === "unknown") ?? false),
     explanation:
       "管理不備が存在する可能性がある。賃貸人の管理義務（民法606条）との照合が必要な状態。",
     checkPoints: [
@@ -697,6 +754,7 @@ export const ISSUE_DB: Issue[] = [
       "管理会社に書面（メール）で報告し対応を求める",
       "対応がない場合は記録を保存し公的相談窓口への相談を検討する",
     ],
+    severity: "medium",
   },
   {
     id: "water_leak_unaddressed",
@@ -716,6 +774,7 @@ export const ISSUE_DB: Issue[] = [
       "管理会社にメールで修繕依頼を送付し記録を残す",
       "対応がない場合は消費生活センターへの相談を検討する",
     ],
+    severity: "high",
   },
   {
     id: "equipment_failure_not_repaired",
@@ -735,6 +794,7 @@ export const ISSUE_DB: Issue[] = [
       "修繕対応の予定日を書面で確認する",
       "緊急の場合は緊急連絡先に即時連絡する",
     ],
+    severity: "high",
   },
   {
     id: "no_written_report_to_management",
@@ -753,6 +813,7 @@ export const ISSUE_DB: Issue[] = [
       "送信記録を保存する",
       "返信に対してもメールで対応し記録を継続する",
     ],
+    severity: "medium",
   },
   {
     id: "no_evidence_for_defect",
@@ -771,6 +832,7 @@ export const ISSUE_DB: Issue[] = [
       "現状の問題箇所を写真・動画で記録する（日時確認できる形で）",
       "記録を安全な場所に保存する",
     ],
+    severity: "medium",
   },
   {
     id: "urgent_defect_no_emergency_contact",
@@ -790,6 +852,7 @@ export const ISSUE_DB: Issue[] = [
       "連絡後もメールで記録を残す",
       "緊急対応が行われない場合は公的機関への相談を検討する",
     ],
+    severity: "high",
   },
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -812,6 +875,7 @@ export const ISSUE_DB: Issue[] = [
       "明細書の各項目と契約書・ガイドラインを照合する",
       "根拠のない差引項目については書面で説明を求める",
     ],
+    severity: "high",
   },
   {
     id: "deposit_no_return_schedule",
@@ -829,6 +893,7 @@ export const ISSUE_DB: Issue[] = [
       "管理会社に敷金返還の予定日・方法を書面で確認する",
       "返還期限（退去後1〜2ヶ月以内が一般的）を確認する",
     ],
+    severity: "medium",
   },
   {
     id: "deposit_deduction_no_basis",
@@ -847,6 +912,7 @@ export const ISSUE_DB: Issue[] = [
       "明細の各項目について根拠3要件を書面で確認する",
       "通常損耗・経年劣化分の差引は原則として返還を求める",
     ],
+    severity: "high",
   },
   {
     id: "move_out_no_itemized_quote",
@@ -864,6 +930,7 @@ export const ISSUE_DB: Issue[] = [
       "費用明細書の提供を書面で求める",
       "明細の各項目と契約書・原状回復ガイドラインを照合する",
     ],
+    severity: "medium",
   },
   {
     id: "normal_wear_charged_to_tenant",
@@ -883,6 +950,7 @@ export const ISSUE_DB: Issue[] = [
       "通常損耗分の費用負担根拠を書面で確認する",
       "ガイドラインと照合して不当な負担を特定する",
     ],
+    severity: "high",
   },
   {
     id: "move_out_no_inspection",
@@ -901,6 +969,7 @@ export const ISSUE_DB: Issue[] = [
       "退去立会いの有無と確認内容を記録する",
       "立会いなく費用請求がある場合は根拠を書面で確認する",
     ],
+    severity: "medium",
   },
   {
     id: "fee_itemization_missing",
@@ -908,7 +977,7 @@ export const ISSUE_DB: Issue[] = [
     title: "費用の内訳が未提示",
     rule: "費用の内訳（項目・金額・算出方法）を示さない一括請求は、根拠の確認が困難な状態となる。借主は費用の内訳の開示を求める権利がある。",
     condition: (input) =>
-      input.fees.length >= 2 && input.explanation !== "yes",
+      (input.facts?.length ?? 0) >= 2 && input.explanation !== "written",
     explanation:
       "複数の費用が選択されているが説明が不十分。各費用の個別内訳が確認されていない状態。",
     checkPoints: [
@@ -919,6 +988,7 @@ export const ISSUE_DB: Issue[] = [
       "各費用の内訳・算出根拠を書面で求める",
       "内訳が提示されたら各項目を照合する",
     ],
+    severity: "medium",
   },
   {
     id: "written_agreement_absent",
@@ -926,7 +996,7 @@ export const ISSUE_DB: Issue[] = [
     title: "費用合意の書面なし",
     rule: "費用への合意は書面で残すことが原則。口頭のみの合意は後の確認・証明が困難であり、費用合意の書面化が重要。",
     condition: (input) =>
-      input.explanation !== "yes" && input.fees.length > 0,
+      input.explanation !== "written" && (input.facts?.length ?? 0) > 0,
     explanation:
       "費用の説明・同意が口頭のみまたは未確認の状態。書面による合意記録が存在しない。",
     checkPoints: [
@@ -937,6 +1007,7 @@ export const ISSUE_DB: Issue[] = [
       "費用に関するやり取りをメールで行う",
       "口頭での説明があった場合は内容を確認メールで相互確認する",
     ],
+    severity: "low",
   },
   {
     id: "pre_estimate_action_priority",
@@ -956,6 +1027,7 @@ export const ISSUE_DB: Issue[] = [
       "任意費用は断ることを書面で伝える",
       "疑問は署名前にメールで記録を残す",
     ],
+    severity: "medium",
   },
   {
     id: "paid_post_verification",
@@ -974,6 +1046,7 @@ export const ISSUE_DB: Issue[] = [
       "根拠に疑問がある費用を特定し書面で確認する",
       "必要に応じて消費生活センターへの相談を検討する",
     ],
+    severity: "low",
   },
   {
     id: "move_out_charge_timing",
@@ -991,5 +1064,157 @@ export const ISSUE_DB: Issue[] = [
       "工事完了後の確定見積もりを書面で求める",
       "概算と確定額の差異について説明を求める",
     ],
+    severity: "low",
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // 新規追加: 実態ベース論点
+  // ════════════════════════════════════════════════════════════════════════════
+  {
+    id: "support_plan_mandatory",
+    category: "説明",
+    title: "サポートプランの任意性未説明",
+    rule: "24時間サポート・安心入居サポート等は任意サービス。必須として説明することは選択機会を奪う説明義務違反の可能性がある。",
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "support_plan" && f.detail?.couldRefuse === false) ?? false,
+    explanation: "サポートプランが必須として提示されている。任意サービスを必須として請求することは説明と同意の構造的欠陥。",
+    checkPoints: [
+      "サポートプランが任意か必須か説明を受けたか",
+      "断れると知っていたか",
+      "断ろうとした場合の対応を確認したか",
+    ],
+    nextAction: [
+      "サポートプランの任意性を書面で確認する",
+      "任意と確認できた場合は解約・返金を求める",
+    ],
+    severity: "high",
+  },
+  {
+    id: "document_fee_no_basis",
+    category: "初期費用",
+    title: "書類作成費・事務手数料の根拠不明",
+    rule: "書類作成費・事務手数料は名目と実態の対応が不明確になりやすい費用。算出根拠と受益者が明示されていない場合、費用の名目と実態の不一致となる。",
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "document_fee" && f.detail?.hasExplanation === false) ?? false,
+    explanation: "書類作成費・事務手数料の根拠説明がない。何のサービスへの対価かが不明な状態。",
+    checkPoints: [
+      "費用の名目が具体的に明示されているか",
+      "算出根拠（時間・作業内容等）が説明されているか",
+      "受益者が借主かどうか確認したか",
+    ],
+    nextAction: [
+      "費用の名目・算出根拠・受益者を書面で確認する",
+    ],
+    severity: "medium",
+  },
+  {
+    id: "ad_fee_tenant_charge",
+    category: "初期費用",
+    title: "広告費（AD）の借主転嫁",
+    rule: "広告料（AD）は貸主が仲介業者に支払う業者間費用。借主に請求するのは名目と実態の不一致にあたる。",
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "ad_fee") ?? false,
+    explanation: "広告費が借主に請求されている。借主は広告の受益者ではなく、費用転嫁の疑いがある。",
+    checkPoints: [
+      "費用の名目が広告費・AD・物件掲載費等でないか確認したか",
+      "この費用の受益者が借主かどうか確認したか",
+    ],
+    nextAction: [
+      "広告費の請求根拠を書面で確認する",
+      "借主への請求根拠がない場合は返還を求める",
+    ],
+    severity: "high",
+  },
+  {
+    id: "fire_insurance_mandatory",
+    category: "説明",
+    title: "火災保険の特定会社への強制加入",
+    rule: "火災保険は任意であり、保険会社・プランの選択権は借主にある。特定会社への強制加入は独占禁止法上問題となる場合がある。",
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "fire_insurance") ?? false,
+    explanation: "火災保険費用が含まれている。特定会社への強制加入・選択肢の説明がなかった場合は確認が必要。",
+    checkPoints: [
+      "保険会社・プランを自由に選べると説明されたか",
+      "特定会社への加入を強制されていないか",
+      "保険料の内訳が明示されているか",
+    ],
+    nextAction: [
+      "火災保険の選択権について書面で確認する",
+      "特定会社への強制加入の根拠を確認する",
+    ],
+    severity: "medium",
+  },
+  {
+    id: "cleaning_disinfection_bundled",
+    category: "初期費用",
+    title: "消毒代のクリーニングへの抱き合わせ",
+    rule: "消毒代は任意サービス。クリーニング代と抱き合わせで必須として請求するのは説明と実態の不一致。原価数百円のサービスが数千〜数万円で請求されるケースがある。",
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "cleaning" && f.detail?.includesDisinfection === true) ?? false,
+    explanation: "清掃費に消毒代が含まれている。消毒は任意サービスであり、抱き合わせでの必須請求は説明義務との不一致。",
+    checkPoints: [
+      "消毒代が任意か必須か説明を受けたか",
+      "消毒の内容・範囲・費用内訳が明示されているか",
+      "断れることを説明されたか",
+    ],
+    nextAction: [
+      "消毒代の任意性と算出根拠を書面で確認する",
+      "任意と確認できた場合は断る意思を書面で伝える",
+    ],
+    severity: "high",
+  },
+  {
+    id: "key_exchange_new_building",
+    category: "実態",
+    title: "新築物件での鍵交換代請求",
+    rule: "新築物件に前入居者は存在しない。前入居者のキー管理リスクを理由とする鍵交換の必要性がなく、請求根拠の確認が必要。",
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "key_exchange" && f.detail?.isNewBuilding === true) ?? false,
+    explanation: "新築物件で鍵交換代が請求されている。前入居者が存在しない場合、鍵交換の必要性の根拠確認が重要。",
+    checkPoints: [
+      "物件が新築であることを確認したか",
+      "鍵交換の必要性の根拠説明を受けたか",
+      "鍵交換が実際に行われたか確認したか",
+    ],
+    nextAction: [
+      "新築物件での鍵交換の必要性・根拠を書面で確認する",
+    ],
+    severity: "high",
+  },
+  {
+    id: "multiple_unknown_fees",
+    category: "説明",
+    title: "名目不明費用が複数存在",
+    rule: "費用の名目と実態の対応は全費用について確認が必要。名目不明費用が複数ある場合、費用の透明性に構造的問題がある。",
+    condition: (input) =>
+      (input.facts?.filter((f: any) => f.realityCategory === "unknown")?.length ?? 0) >= 2,
+    explanation: "名目不明の費用が複数含まれている。費用の透明性に問題がある状態。",
+    checkPoints: [
+      "各費用の名目と実態サービスが対応しているか確認したか",
+      "名目不明費用の受益者が借主かどうか確認したか",
+    ],
+    nextAction: [
+      "全費用を一覧化し名目・根拠・受益者を個別に書面で確認する",
+    ],
+    severity: "high",
+  },
+  {
+    id: "pressured_explanation",
+    category: "説明",
+    title: "急かされ・はぐらかされた状態での説明",
+    rule: "説明義務は内容の理解を前提とする。急かす・はぐらかすことで理解の機会を奪う説明は、実質的な説明義務を果たしていない。",
+    condition: (input) =>
+      input.explanation === "pressured" || input.explanation === "rushed",
+    explanation: "説明が急かされた・はぐらかされた状態で行われている。実質的な説明義務履行の疑いがある。",
+    checkPoints: [
+      "説明を受ける十分な時間があったか",
+      "質問できる機会があったか",
+      "急かされた状況を記録しているか",
+    ],
+    nextAction: [
+      "説明が不十分だった点を特定し書面で補足説明を求める",
+      "急かされた状況を記録しておく",
+    ],
+    severity: "high",
   },
 ];

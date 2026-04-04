@@ -1,7 +1,4 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { diagnosisSchema } from "@/lib/schema";
-import { diagnoseInitialFees } from "@/lib/diagnose";
-import { diagnoseContractReview, diagnoseMaintenance, diagnoseMoveOut, diagnoseDepositRefund } from "@/lib/diagnoseModes";
 import type { InitialFeesInput, DiagnosisResult } from "@/lib/types";
 
 const anthropic = new Anthropic({
@@ -154,31 +151,11 @@ export async function POST(request: Request) {
     return Response.json({ error: "リクエストの形式が正しくありません" }, { status: 400 });
   }
 
-  const parsed = diagnosisSchema.safeParse(body);
-  if (!parsed.success) {
-    const messages = parsed.error.issues.map((i) => i.message).join(", ");
-    return Response.json({ error: messages }, { status: 422 });
+  const { result, input } = body as { result: DiagnosisResult; input: InitialFeesInput };
+  if (!result || !input) {
+    return Response.json({ error: "result と input が必要です" }, { status: 422 });
   }
 
-  const data = parsed.data;
-
-  switch (data.mode) {
-    case "contract_review":
-      return Response.json(diagnoseContractReview(data));
-
-    case "maintenance":
-      return Response.json(diagnoseMaintenance(data));
-
-    case "move_out":
-      return Response.json(diagnoseMoveOut(data));
-
-    case "deposit_refund":
-      return Response.json(diagnoseDepositRefund(data));
-
-    case "initial_fees":
-    case "renewal": {
-      const result = await diagnoseInitialFees(data as InitialFeesInput);
-      return Response.json({ ...result, draftEmail: "" });
-    }
-  }
+  const draftEmail = await generateEmailWithAI(result, input);
+  return Response.json({ draftEmail });
 }

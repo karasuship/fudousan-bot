@@ -4,7 +4,7 @@ import type {
   MoveOutInput,
   DepositRefundInput,
   DiagnosisResult,
-  RefundBreakdownItem,
+  DetectedIssue,
   RiskLevel,
 } from "./types";
 
@@ -100,46 +100,103 @@ ${checkItems}
 }
 
 export function diagnoseContractReview(input: ContractReviewInput): DiagnosisResult {
-  const issues: string[] = [];
+  const issues: DetectedIssue[] = [];
   const nextChecks: string[] = [];
   let score = 0;
 
   if (input.hasPenaltyClauses) {
-    issues.push(
-      "違約金・清掃費などの特約が含まれています。特約の有効性は内容の明確性・説明・同意の方法に左右されます。内容と根拠を事前に確認することをお勧めします。"
-    );
+    issues.push({
+      id: "contract_penalty_clause",
+      category: "契約",
+      title: "ペナルティ特約の存在",
+      rule: "ペナルティ特約は①金額・条件が明記され、②説明を受け、③明示的に同意した場合のみ有効。",
+      explanation: "違約金・清掃費などの特約が含まれています。特約の有効性は内容の明確性・説明・同意の方法に左右されます。内容と根拠を事前に確認することをお勧めします。",
+      checkPoints: [
+        "特約の具体的な内容・金額が明記されているか確認する",
+        "特約への同意の形式（署名・捺印・チェックボックス等）を確認する",
+      ],
+      nextAction: [
+        "契約書のペナルティ条項を特定し3要件（明記・説明・同意）を確認する",
+      ],
+      severity: "medium",
+    });
     nextChecks.push("特約の具体的な内容・金額が明記されているか確認する");
     nextChecks.push("特約への同意の形式（署名・捺印・チェックボックス等）を確認する");
     score += 15;
   }
 
   if (!input.hasCheckbox && (input.hasPenaltyClauses || input.hasSpecialClauses)) {
-    issues.push(
-      "特約へのチェックボックス等の明示的な同意が確認できていません。同意の経緯・方法を確認することをお勧めします。"
-    );
+    issues.push({
+      id: "contract_no_explicit_consent",
+      category: "契約",
+      title: "特約への明示的な同意なし",
+      rule: "特約への同意は署名・捺印・チェックボックス等の明示的な形式で取られる必要がある。",
+      explanation: "特約へのチェックボックス等の明示的な同意が確認できていません。同意の経緯・方法を確認することをお勧めします。",
+      checkPoints: [
+        "特約への同意がどの書面のどの形式で取られたか確認したか",
+      ],
+      nextAction: [
+        "同意の形式（どの書面に署名したか）を特定する",
+      ],
+      severity: "medium",
+    });
     score += 10;
   }
 
   if (!input.hasOralExplanation) {
-    issues.push(
-      "費用・特約について口頭での説明を受けていない可能性があります。重要事項説明は書面と口頭での説明が原則です。説明内容を書面で確認しましょう。"
-    );
+    issues.push({
+      id: "contract_no_oral_explanation",
+      category: "説明",
+      title: "重要事項の口頭説明なし",
+      rule: "宅建業者は重要事項説明書を交付するだけでなく、宅建士による口頭での説明が義務（宅建業法35条）。",
+      explanation: "費用・特約について口頭での説明を受けていない可能性があります。重要事項説明は書面と口頭での説明が原則です。",
+      checkPoints: [
+        "重要事項説明書の内容を改めて確認し、疑問点を署名前に書面で質問する",
+      ],
+      nextAction: [
+        "説明を受けていない項目を特定し書面で説明を求める",
+      ],
+      severity: "high",
+    });
     nextChecks.push("重要事項説明書の内容を改めて確認し、疑問点を署名前に書面で質問する");
     score += 15;
   }
 
   if (input.hasSpecialClauses) {
-    issues.push(
-      "特約条項が含まれています。特約の内容・根拠・有効性について事前に確認することをお勧めします。"
-    );
+    issues.push({
+      id: "contract_special_clauses",
+      category: "契約",
+      title: "特約条項の存在",
+      rule: "特約条項は内容・根拠・有効性について事前確認が必要。借主に不利な特約は明記と説明を要する。",
+      explanation: "特約条項が含まれています。特約の内容・根拠・有効性について事前に確認することをお勧めします。",
+      checkPoints: [
+        "特約の内容が具体的・明確に記載されているか確認する",
+      ],
+      nextAction: [
+        "特約の内容・根拠を書面で確認する",
+      ],
+      severity: "medium",
+    });
     nextChecks.push("特約の内容が具体的・明確に記載されているか確認する");
     score += 10;
   }
 
   if (input.contractType === "fixed_term" && input.hasRenewalClause) {
-    issues.push(
-      "定期借家契約では「更新」はなく「再契約」という形になります。更新条項の内容・適用範囲・再契約時の条件を確認することが重要です。"
-    );
+    issues.push({
+      id: "contract_fixed_term_renewal",
+      category: "契約",
+      title: "定期借家契約の更新条項",
+      rule: "定期借家契約では「更新」はなく「再契約」という形になる（借地借家法38条）。更新条項の内容・適用範囲・再契約時の条件確認が重要。",
+      explanation: "定期借家契約では「更新」はなく「再契約」という形になります。更新条項の内容・適用範囲・再契約時の条件を確認することが重要です。",
+      checkPoints: [
+        "定期借家契約における再契約条件・費用を確認する",
+      ],
+      nextAction: [
+        "契約書の種別（普通借家/定期借家）を確認する",
+        "定期借家の場合は更新料の請求根拠を書面で確認する",
+      ],
+      severity: "high",
+    });
     nextChecks.push("定期借家契約における再契約条件・費用を確認する");
     score += 20;
   }
@@ -160,13 +217,26 @@ export function diagnoseContractReview(input: ContractReviewInput): DiagnosisRes
     overallRisk,
     score: Math.min(score, 100),
     summary,
-    issues: issues.length > 0 ? issues : ["現時点では特段の懸念点は見当たりませんでした。"],
+    issues:
+      issues.length > 0
+        ? issues
+        : [
+            {
+              id: "contract_no_issue",
+              category: "契約",
+              title: "確認事項なし",
+              rule: "現時点での確認事項は見つかりませんでした。",
+              explanation: "現時点では特段の懸念点は見当たりませんでした。",
+              checkPoints: ["署名前に全費用の根拠を確認する"],
+              nextAction: ["契約書の最終確認を行う"],
+              severity: "low",
+            },
+          ],
     nextChecks: [...new Set(nextChecks)],
     draftEmail: generateContractReviewEmail(input),
     disclaimer: DISCLAIMER,
     estimatedRefundMin: 0,
     estimatedRefundMax: 0,
-    estimatedBreakdown: [],
   };
 }
 
@@ -267,37 +337,84 @@ ${durationLabel}より${issueLabel}が発生しています。${impactLabel}。
 }
 
 export function diagnoseMaintenance(input: MaintenanceInput): DiagnosisResult {
-  const issues: string[] = [];
+  const issues: DetectedIssue[] = [];
   const nextChecks: string[] = [];
   let score = 0;
 
   const issueLabel = ISSUE_TYPE_LABELS[input.issueType] ?? input.issueType;
 
   if (input.isUrgent) {
-    issues.push(
-      `${issueLabel}について緊急性が高い状況です。速やかに管理会社・貸主へ書面で連絡し、対応依頼を記録として残すことが重要です。`
-    );
+    issues.push({
+      id: "maintenance_urgent",
+      category: "管理不備",
+      title: `${issueLabel}の緊急対応が必要`,
+      rule: "生命・健康に関わる設備不具合は賃貸人が速やかに修繕する義務がある（民法607条の2）。",
+      explanation: `${issueLabel}について緊急性が高い状況です。速やかに管理会社・貸主へ書面で連絡し、対応依頼を記録として残すことが重要です。`,
+      checkPoints: [
+        "緊急連絡先（管理会社・緊急対応窓口）に今すぐ連絡し、メールでも記録を残す",
+      ],
+      nextAction: [
+        "緊急連絡先に即座に連絡し対応を依頼する",
+        "連絡後もメールで記録を残す",
+      ],
+      severity: "high",
+    });
     nextChecks.push("緊急連絡先（管理会社・緊急対応窓口）に今すぐ連絡し、メールでも記録を残す");
     score += 30;
   }
 
   if (input.lifeImpact === "severe") {
-    issues.push(
-      "不具合が日常生活に重大な支障をきたしています。賃貸人には修繕義務がある可能性があります。状況と対応経過を書面で記録することが重要です。"
-    );
+    issues.push({
+      id: "maintenance_severe_impact",
+      category: "管理不備",
+      title: "日常生活への重大な支障",
+      rule: "賃貸人には貸室を使用収益に適した状態に維持する義務がある（民法606条）。修繕義務違反は賃料減額請求の対象となりえる。",
+      explanation: "不具合が日常生活に重大な支障をきたしています。賃貸人には修繕義務がある可能性があります。状況と対応経過を書面で記録することが重要です。",
+      checkPoints: [
+        "生活への支障状況を詳細に記録し、管理会社への書面連絡で記録を残す",
+      ],
+      nextAction: [
+        "発生日時・状況・被害を記録する",
+        "管理会社にメールで修繕依頼を送付し記録を残す",
+      ],
+      severity: "high",
+    });
     nextChecks.push("生活への支障状況を詳細に記録し、管理会社への書面連絡で記録を残す");
     score += 25;
   } else if (input.lifeImpact === "moderate") {
-    issues.push(
-      "不具合が日常生活に影響を与えています。速やかな対応を書面で依頼することをお勧めします。"
-    );
+    issues.push({
+      id: "maintenance_moderate_impact",
+      category: "管理不備",
+      title: "日常生活への影響あり",
+      rule: "賃貸人には修繕義務がある（民法606条）。速やかな対応を書面で依頼することが重要。",
+      explanation: "不具合が日常生活に影響を与えています。速やかな対応を書面で依頼することをお勧めします。",
+      checkPoints: [
+        "不具合の状況と生活への影響を書面で管理会社に報告したか",
+      ],
+      nextAction: [
+        "不具合の状況をメールで管理会社に報告する",
+      ],
+      severity: "medium",
+    });
     score += 15;
   }
 
   if (!input.alreadyContacted) {
-    issues.push(
-      "まだ管理会社・貸主への書面連絡を行っていない場合、メール等で報告・依頼を行い記録を残すことが最初のステップです。"
-    );
+    issues.push({
+      id: "maintenance_not_reported",
+      category: "管理不備",
+      title: "管理会社への報告未済",
+      rule: "管理不備の証明には書面での報告記録が必要。口頭のみの連絡は証拠として残らない。",
+      explanation: "まだ管理会社・貸主への書面連絡を行っていない場合、メール等で報告・依頼を行い記録を残すことが最初のステップです。",
+      checkPoints: [
+        "不具合の発生日・状況・生活への影響を記録し、管理会社へメールで報告する",
+      ],
+      nextAction: [
+        "不具合の状況をメールで管理会社に報告する",
+        "送信記録を保存する",
+      ],
+      severity: "medium",
+    });
     nextChecks.push("不具合の発生日・状況・生活への影響を記録し、管理会社へメールで報告する");
     score += 10;
   } else {
@@ -305,9 +422,20 @@ export function diagnoseMaintenance(input: MaintenanceInput): DiagnosisResult {
   }
 
   if (!input.hasEvidence) {
-    issues.push(
-      "写真・動画などの証拠記録がない場合、今すぐ記録しておくことをお勧めします。後の対応に役立ちます。"
-    );
+    issues.push({
+      id: "maintenance_no_evidence",
+      category: "管理不備",
+      title: "不具合の証拠記録なし",
+      rule: "管理不備・損耗等の証明には写真・動画等の記録が必要。記録がない場合、事後的な証明が困難になる。",
+      explanation: "写真・動画などの証拠記録がない場合、今すぐ記録しておくことをお勧めします。後の対応に役立ちます。",
+      checkPoints: [
+        "不具合の状況を写真・動画で記録する（日時も確認できるよう配慮）",
+      ],
+      nextAction: [
+        "現状の問題箇所を写真・動画で記録する（日時確認できる形で）",
+      ],
+      severity: "medium",
+    });
     nextChecks.push("不具合の状況を写真・動画で記録する（日時も確認できるよう配慮）");
     score += 10;
   }
@@ -328,30 +456,33 @@ export function diagnoseMaintenance(input: MaintenanceInput): DiagnosisResult {
     overallRisk,
     score: Math.min(score, 100),
     summary,
-    issues: issues.length > 0 ? issues : ["現時点での緊急性は低いと考えられます。記録を残しておきましょう。"],
+    issues:
+      issues.length > 0
+        ? issues
+        : [
+            {
+              id: "maintenance_no_issue",
+              category: "管理不備",
+              title: "緊急性低",
+              rule: "現時点での緊急性は低いと考えられます。",
+              explanation: "現時点での緊急性は低いと考えられます。記録を残しておきましょう。",
+              checkPoints: ["管理会社への書面連絡で記録を残す"],
+              nextAction: ["不具合の状況をメールで管理会社に報告する"],
+              severity: "low",
+            },
+          ],
     nextChecks: [...new Set(nextChecks)],
     draftEmail: generateMaintenanceEmail(input),
     disclaimer: DISCLAIMER,
     estimatedRefundMin: 0,
     estimatedRefundMax: 0,
-    estimatedBreakdown: [],
   };
 }
 
 // ─── Mode 5: 退去費用チェック ──────────────────────────────────────────
 
-const MOVE_OUT_FEE_LABELS: Record<string, string> = {
-  renewal_fee: "更新料",
-  recontracting_fee: "再契約料",
-  agency_fee: "仲介手数料",
-  key_exchange: "鍵交換代",
-  cleaning: "クリーニング代",
-  guarantor: "保証会社費用",
-  other: "その他費用",
-};
-
 function generateMoveOutEmail(input: MoveOutInput): string {
-  const feeList = input.fees.map((f) => MOVE_OUT_FEE_LABELS[f] ?? f).join("・");
+  const feeList = input.facts.map((f) => f.labelOnInvoice || f.realityCategory).join("・");
 
   const checks: string[] = [
     `・${feeList}の各費用について、根拠となる契約条項と算出方法をご教示ください`,
@@ -433,95 +564,129 @@ ${checkItems}
 function estimateMoveOutRefund(input: MoveOutInput): {
   estimatedRefundMin: number;
   estimatedRefundMax: number;
-  estimatedBreakdown: RefundBreakdownItem[];
 } {
-  const items: RefundBreakdownItem[] = [];
-  const hasEvidence = input.hasEntryPhotos;
-  const mult = !hasEvidence ? 1.1 : 1.0;
+  let min = 0;
+  let max = 0;
 
-  for (const fee of input.fees) {
-    let baseMin = 0;
-    let baseMax = 0;
-    const label = MOVE_OUT_FEE_LABELS[fee] ?? fee;
-
-    switch (fee) {
+  for (const fact of input.facts) {
+    switch (fact.realityCategory) {
       case "cleaning":
-        baseMin = input.isNormalWear ? 5000 : 0;
-        baseMax = input.isNormalWear ? 30000 : (input.hasContractSpecialClause ? 15000 : 0);
+        min += input.isNormalWear ? 5000 : 0;
+        max += input.isNormalWear ? 30000 : input.hasContractSpecialClause ? 15000 : 0;
         break;
       case "key_exchange":
-        baseMin = 0;
-        baseMax = input.contractMention === "unknown" ? 13200 : 5000;
+        max += input.contractMention === "unknown" ? 13200 : 5000;
         break;
-      case "other":
-        baseMin = 0;
-        baseMax = !input.hasDetailedQuote ? 20000 : 5000;
+      case "repair":
+      case "unknown":
+        max += !input.hasDetailedQuote ? 20000 : 5000;
         break;
-      default:
-        baseMin = 0;
-        baseMax = 0;
     }
-
-    const adjMax = Math.round((baseMax * mult) / 1000) * 1000;
-    if (adjMax > 0) items.push({ feeType: fee, label, min: baseMin, max: adjMax });
   }
 
   return {
-    estimatedRefundMin: items.reduce((s, i) => s + i.min, 0),
-    estimatedRefundMax: items.reduce((s, i) => s + i.max, 0),
-    estimatedBreakdown: items,
+    estimatedRefundMin: min,
+    estimatedRefundMax: Math.min(max, 200000),
   };
 }
 
 export function diagnoseMoveOut(input: MoveOutInput): DiagnosisResult {
-  const issues: string[] = [];
+  const issues: DetectedIssue[] = [];
   const nextChecks: string[] = [];
   let score = 0;
 
   if (!input.hasDetailedQuote) {
-    issues.push(
-      "費用の詳細な内訳明細（工事箇所・単価・数量・金額）が提供されていません。各費用の根拠・算出方法を書面で確認することが重要です。"
-    );
+    issues.push({
+      id: "move_out_no_detailed_quote",
+      category: "手続き",
+      title: "退去費用の詳細明細なし",
+      rule: "退去費用の請求には工事箇所・単価・数量・金額の明細が必要。明細なき一括請求は根拠の確認が困難な状態となる。",
+      explanation: "費用の詳細な内訳明細（工事箇所・単価・数量・金額）が提供されていません。各費用の根拠・算出方法を書面で確認することが重要です。",
+      checkPoints: ["費用の詳細な明細書の提供を求める"],
+      nextAction: ["費用明細書の提供を書面で求める"],
+      severity: "medium",
+    });
     nextChecks.push("費用の詳細な明細書の提供を求める");
     score += 20;
   }
 
   if (input.isNormalWear) {
-    issues.push(
-      "通常の使用による損耗（通常損耗）は原則として貸主負担とされています（国土交通省原状回復ガイドライン）。費用の負担区分・根拠を確認することをお勧めします。"
-    );
+    issues.push({
+      id: "move_out_normal_wear",
+      category: "手続き",
+      title: "通常損耗の借主負担",
+      rule: "通常の使用による損耗（通常損耗）は原則として貸主負担（国土交通省原状回復ガイドライン）。費用の負担区分・根拠の確認が必要。",
+      explanation: "通常の使用による損耗（通常損耗）は原則として貸主負担とされています（国土交通省原状回復ガイドライン）。費用の負担区分・根拠を確認することをお勧めします。",
+      checkPoints: ["通常損耗と経年劣化の扱いについて契約書・ガイドラインと照合する"],
+      nextAction: [
+        "費用明細の各項目を通常損耗・原状回復・特約負担に分類する",
+        "通常損耗分の費用負担根拠を書面で確認する",
+      ],
+      severity: "high",
+    });
     nextChecks.push("通常損耗と経年劣化の扱いについて契約書・ガイドラインと照合する");
     score += 20;
   }
 
   if (!input.hasEntryPhotos) {
-    issues.push(
-      "入居時の状況写真がない場合、入居前からの損傷等の証明が難しくなります。現状の写真・記録を整理しておくことをお勧めします。"
-    );
+    issues.push({
+      id: "move_out_no_entry_photos",
+      category: "実態",
+      title: "入居時の状況記録なし",
+      rule: "入居時の損耗・傷の有無は退去時の原状回復費用の基準となる。入居時写真がない場合、前入居者による損耗を立証できない。",
+      explanation: "入居時の状況写真がない場合、入居前からの損傷等の証明が難しくなります。現状の写真・記録を整理しておくことをお勧めします。",
+      checkPoints: ["現在の室内状況を写真で記録しておく"],
+      nextAction: ["入居時の状況を証明できる記録（写真・書面）を探す"],
+      severity: "medium",
+    });
     nextChecks.push("現在の室内状況を写真で記録しておく");
     score += 15;
   }
 
   if (!input.hasInspection) {
-    issues.push(
-      "退去立会い確認を行っていない場合、その後の費用請求の根拠確認が重要です。立会い実施の有無・内容を記録しておきましょう。"
-    );
+    issues.push({
+      id: "move_out_no_inspection",
+      category: "手続き",
+      title: "退去立会い確認の未実施",
+      rule: "退去立会いは損耗箇所・原因・費用負担を双方で確認する機会。立会いなく費用を請求する場合、請求根拠の形成過程が不透明となる。",
+      explanation: "退去立会い確認を行っていない場合、その後の費用請求の根拠確認が重要です。立会い実施の有無・内容を記録しておきましょう。",
+      checkPoints: ["立会い確認の実施状況・確認書類の有無を確認する"],
+      nextAction: ["退去立会いの有無と確認内容を記録する"],
+      severity: "medium",
+    });
     nextChecks.push("立会い確認の実施状況・確認書類の有無を確認する");
     score += 10;
   }
 
   if (input.contractMention === "unknown") {
-    issues.push(
-      "費用の根拠となる契約書・特約の記載が確認できていません。各費用の根拠条項を確認することをお勧めします。"
-    );
+    issues.push({
+      id: "move_out_contract_unknown",
+      category: "実態",
+      title: "費用根拠の契約書記載が未確認",
+      rule: "退去費用の請求は契約書・重要事項説明書の記載条項に基づく必要がある。照合なき費用支払いは根拠のない費用を支払うリスクを生む。",
+      explanation: "費用の根拠となる契約書・特約の記載が確認できていません。各費用の根拠条項を確認することをお勧めします。",
+      checkPoints: ["賃貸借契約書・特約の退去時費用に関する記載を確認する"],
+      nextAction: ["契約書の退去時特約を確認する"],
+      severity: "medium",
+    });
     nextChecks.push("賃貸借契約書・特約の退去時費用に関する記載を確認する");
     score += 15;
   }
 
   if (input.hasContractSpecialClause) {
-    issues.push(
-      "契約書に退去時の特約がある場合、特約の有効性（内容の明確性・説明の有無・同意の形式）を確認することをお勧めします。"
-    );
+    issues.push({
+      id: "move_out_special_clause",
+      category: "契約",
+      title: "退去時費用の特約記載あり",
+      rule: "退去時の原状回復費用を借主に負担させる特約は、明記と説明がなければ原則として無効（国土交通省原状回復ガイドライン）。",
+      explanation: "契約書に退去時の特約がある場合、特約の有効性（内容の明確性・説明の有無・同意の形式）を確認することをお勧めします。",
+      checkPoints: [
+        "特約の内容・金額の具体性を確認する",
+        "特約への同意の形式（署名・捺印・チェックボックス等）を確認する",
+      ],
+      nextAction: ["特約の内容・根拠を書面で確認する"],
+      severity: "medium",
+    });
     nextChecks.push("特約の内容・金額の具体性を確認する");
     nextChecks.push("特約への同意の形式（署名・捺印・チェックボックス等）を確認する");
     score += 10;
@@ -544,7 +709,21 @@ export function diagnoseMoveOut(input: MoveOutInput): DiagnosisResult {
     overallRisk,
     score: Math.min(score, 100),
     summary,
-    issues: issues.length > 0 ? issues : ["現時点では特段の懸念点は見当たりませんでした。"],
+    issues:
+      issues.length > 0
+        ? issues
+        : [
+            {
+              id: "move_out_no_issue",
+              category: "手続き",
+              title: "確認事項なし",
+              rule: "現時点での懸念点は見当たりませんでした。",
+              explanation: "現時点では特段の懸念点は見当たりませんでした。",
+              checkPoints: ["明細を確認しておく"],
+              nextAction: ["念のため明細書を保存する"],
+              severity: "low",
+            },
+          ],
     nextChecks: [...new Set(nextChecks)],
     draftEmail: generateMoveOutEmail(input),
     disclaimer: DISCLAIMER,
@@ -634,30 +813,51 @@ ${checkItems}
 }
 
 export function diagnoseDepositRefund(input: DepositRefundInput): DiagnosisResult {
-  const issues: string[] = [];
+  const issues: DetectedIssue[] = [];
   const nextChecks: string[] = [];
   let score = 0;
 
   if (!input.hasDetailedStatement) {
-    issues.push(
-      "差引明細（費目・金額・算出根拠）が提示されていません。各費用の名目・金額・算出根拠が記載された明細書の提供を求めることが重要です。"
-    );
+    issues.push({
+      id: "deposit_no_statement",
+      category: "手続き",
+      title: "敷金精算の明細未提示",
+      rule: "敷金から差し引く場合、各項目の名目・金額・算出根拠を記した明細書を借主に提示する義務がある。",
+      explanation: "差引明細（費目・金額・算出根拠）が提示されていません。各費用の名目・金額・算出根拠が記載された明細書の提供を求めることが重要です。",
+      checkPoints: ["各差引項目の名目・金額・算出根拠が記載された明細書の提供を求める"],
+      nextAction: ["明細書の提供を書面で求める"],
+      severity: "high",
+    });
     nextChecks.push("各差引項目の名目・金額・算出根拠が記載された明細書の提供を求める");
     score += 25;
   }
 
   if (input.deductionItems.length > 0) {
-    issues.push(
-      `差引項目（${input.deductionItems.join("・")}）について、各費用の根拠と算出方法の確認をお勧めします。`
-    );
+    issues.push({
+      id: "deposit_deduction_items",
+      category: "手続き",
+      title: "差引項目の根拠確認",
+      rule: "敷金からの差引は契約書上の根拠・借主の責任・適正費用の3要件を満たす必要がある。",
+      explanation: `差引項目（${input.deductionItems.join("・")}）について、各費用の根拠と算出方法の確認をお勧めします。`,
+      checkPoints: ["各差引項目が契約書・特約のどの条項に基づくか確認する"],
+      nextAction: ["明細の各項目について根拠3要件を書面で確認する"],
+      severity: "medium",
+    });
     nextChecks.push("各差引項目が契約書・特約のどの条項に基づくか確認する");
     score += 10 + (input.deductionItems.length >= 3 ? 10 : 0);
   }
 
   if (!input.hasReturnSchedule) {
-    issues.push(
-      "敷金の返還予定日・返還方法についての連絡がない状況です。返還時期・方法を書面で確認することをお勧めします。"
-    );
+    issues.push({
+      id: "deposit_no_return_schedule",
+      category: "手続き",
+      title: "敷金返還日程の未連絡",
+      rule: "敷金は退去後に精算・返還されるべきもの。返還日程・方法の連絡がない場合、返還義務の履行が確認できない。",
+      explanation: "敷金の返還予定日・返還方法についての連絡がない状況です。返還時期・方法を書面で確認することをお勧めします。",
+      checkPoints: ["敷金返還の予定日・振込先等を書面で問い合わせる"],
+      nextAction: ["管理会社に敷金返還の予定日・方法を書面で確認する"],
+      severity: "medium",
+    });
     nextChecks.push("敷金返還の予定日・振込先等を書面で問い合わせる");
     score += 15;
   }
@@ -668,9 +868,16 @@ export function diagnoseDepositRefund(input: DepositRefundInput): DiagnosisResul
       : 0;
 
   if (gap > 0 && !input.hasDetailedStatement) {
-    issues.push(
-      `差引額（約${gap.toLocaleString("ja-JP")}円）に対して明細が提示されていないため、各費用の根拠確認が特に重要です。`
-    );
+    issues.push({
+      id: "deposit_gap_no_statement",
+      category: "手続き",
+      title: "差引額の根拠説明なし",
+      rule: "差引がある場合は各費目の根拠が必要。明細なき差引は請求根拠が存在しない状態。",
+      explanation: `差引額（約${gap.toLocaleString("ja-JP")}円）に対して明細が提示されていないため、各費用の根拠確認が特に重要です。`,
+      checkPoints: ["差引額の根拠となる費目一覧を書面で求める"],
+      nextAction: ["差引額の根拠説明を書面で求める"],
+      severity: "high",
+    });
     score += 5;
   }
 
@@ -679,10 +886,6 @@ export function diagnoseDepositRefund(input: DepositRefundInput): DiagnosisResul
 
   const potentialMax =
     gap > 0 ? Math.min(Math.round((gap * 0.3) / 1000) * 1000, 100000) : 0;
-  const breakdown: RefundBreakdownItem[] =
-    potentialMax > 0
-      ? [{ feeType: "deposit", label: "敷金差引（確認対象）", min: 0, max: potentialMax }]
-      : [];
 
   const overallRisk = computeRisk(score);
   const summary =
@@ -697,12 +900,25 @@ export function diagnoseDepositRefund(input: DepositRefundInput): DiagnosisResul
     overallRisk,
     score: Math.min(score, 100),
     summary,
-    issues: issues.length > 0 ? issues : ["現時点での懸念点は見当たりませんでした。"],
+    issues:
+      issues.length > 0
+        ? issues
+        : [
+            {
+              id: "deposit_no_issue",
+              category: "手続き",
+              title: "確認事項なし",
+              rule: "現時点での懸念点は見当たりませんでした。",
+              explanation: "現時点での懸念点は見当たりませんでした。",
+              checkPoints: ["敷金精算書を保存しておく"],
+              nextAction: ["念のため精算書を保存する"],
+              severity: "low",
+            },
+          ],
     nextChecks: [...new Set(nextChecks)],
     draftEmail: generateDepositRefundEmail(input),
     disclaimer: DISCLAIMER,
     estimatedRefundMin: 0,
     estimatedRefundMax: potentialMax,
-    estimatedBreakdown: breakdown,
   };
 }

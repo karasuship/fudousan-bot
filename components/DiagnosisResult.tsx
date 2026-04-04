@@ -18,22 +18,22 @@ interface Props {
 const IF_SITUATION_TEXT: Record<string, { status: string; desc: string; statusColor: string }> = {
   pre_estimate: {
     status: "見積もり確認中",
-    desc: "まだ支払っておらず、費用の確認・調整がしやすい段階です。見積書の各項目を今すぐ確認しましょう。",
+    desc: "この段階ではまだ支払い義務はありません。鍵交換・クリーニングなどの費用は見積書から削除を求めることができます。名目と金額を今すぐ確認しましょう。",
     statusColor: "bg-green-100 text-green-700",
   },
   pre_sign: {
     status: "申込中・契約直前",
-    desc: "署名前の段階なので、疑問があれば今が最も確認しやすいタイミングです。署名前に書面で確認を。",
+    desc: "署名前であれば支払い義務はなく、費用の削除・修正を求めることができます。特約・特記事項に書かれていても有効要件を満たさない場合があります。署名前が最後の機会です。",
     statusColor: "bg-blue-100 text-blue-700",
   },
   pre_payment: {
     status: "契約済み・支払い前",
-    desc: "支払い前なので、内訳の説明を求める余地があります。書面で確認してから支払いましょう。",
+    desc: "支払い前であれば、根拠の開示を求めたうえで支払いを保留することができます。内訳・実施記録・契約書の記載箇所を書面で確認してから支払いましょう。",
     statusColor: "bg-amber-100 text-amber-700",
   },
   paid: {
     status: "支払い済み",
-    desc: "支払い済みの段階です。明細・領収書・契約書を整理しておくことが今後の判断に重要です。",
+    desc: "支払い済みでも、根拠が存在しない費用については返還請求が可能な場合があります。まず明細・領収書・契約書を照合して根拠の有無を確認しましょう。",
     statusColor: "bg-slate-100 text-slate-600",
   },
 };
@@ -124,31 +124,76 @@ const IF_DOCUMENTS_BY_SITUATION: Record<string, string[]> = {
 
 // ─── initial_fees: 確認用テンプレ（安全設計・事実確認型）───────────────────
 function getIfConfirmationTemplate(situation: string): string {
-  if (situation === "paid") {
-    return `件名：費用明細についての確認のお願い
+  if (situation === "pre_estimate") {
+    return `件名：見積書の費用項目についての確認のお願い
+
+お世話になっております。
+
+ご提示いただいた見積書の費用について、以下の点を確認させていただけますでしょうか。
+
+・各費用が必須か任意かの区別
+・各費用の根拠となる法令・契約条項
+・任意費用については、加入しない場合の取り扱い
+
+お手数をおかけしますが、書面でご回答いただけますと幸いです。
+どうぞよろしくお願いいたします。`;
+  }
+
+  if (situation === "pre_sign") {
+    return `件名：契約書の費用項目についての確認のお願い
+
+お世話になっております。
+
+署名に先立ち、契約書・重要事項説明書に記載されている費用について確認させていただけますでしょうか。
+
+・各費用の根拠となる条項と算出方法
+・特約・特記事項に記載されている費用の必須・任意の区別
+・任意費用については、加入しない場合の取り扱い
+
+内容を確認したうえで署名の判断をしたいと考えております。
+お手数ですが、書面でご回答いただけますと幸いです。
+どうぞよろしくお願いいたします。`;
+  }
+
+  if (situation === "pre_payment") {
+    return `件名：ご請求費用の根拠についての確認のお願い
+
+お世話になっております。
+
+ご請求いただいた費用について、支払い前に以下の点を書面で確認させていただけますでしょうか。
+
+・各費用の名目と根拠（契約書・重要事項説明書の記載箇所）
+・実施が伴う費用については実施記録・領収書
+・金額の算出方法・内訳
+
+内容を確認したうえで対応を検討いたします。
+お手数をおかけしますが、書面でご回答いただけますと幸いです。
+どうぞよろしくお願いいたします。`;
+  }
+
+  // paid
+  return `件名：お支払い済み費用の明細についての確認のお願い
 
 お世話になっております。
 
 先日お支払いした費用について、以下の点を確認させていただけますでしょうか。
 
 ・各費用の名目と根拠（契約書・重要事項説明書の記載箇所）
+・実施が伴う費用については実施記録・領収書
 ・費用の算出方法・内訳
 
 お手数をおかけしますが、書面でご回答いただけますと幸いです。
+内容を確認のうえ、対応を検討いたします。
 どうぞよろしくお願いいたします。`;
-  }
-  return `件名：ご請求費用についての確認のお願い
+}
 
-お世話になっております。
-
-入居手続きに際してご請求いただいた費用について、以下の点を確認させていただけますでしょうか。
-
-・各費用の名目と根拠（契約書・重要事項説明書の記載箇所）
-・必須か任意かの区別
-・金額の算出方法
-
-お手数をおかけしますが、書面でご回答いただけますと幸いです。
-どうぞよろしくお願いいたします。`;
+// ─── initial_fees: 状況別の権利サマリー ─────────────────────────────────────
+function getSituationPrefix(situation?: string): string | null {
+  if (situation === "pre_estimate") return "この費用はそもそも支払い義務がありません。見積書からの削除を求めることができます。";
+  if (situation === "pre_sign") return "署名前であれば支払い義務はなく、契約書からの削除・修正を求めることができます。署名前が最後の機会です。";
+  if (situation === "pre_payment") return "支払い前であれば、根拠の開示を求めたうえで支払いを保留することができます。";
+  if (situation === "paid") return "支払い済みでも、根拠が存在しない場合は返還請求が可能な場合があります。";
+  return null;
 }
 
 // ─── コピーボタン ────────────────────────────────────────────────
@@ -365,7 +410,7 @@ function fmt(n: number) {
 // ─── メイン ───────────────────────────────────────────────────────
 export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
   const cfg = RISK_CONFIG[result.overallRisk];
-  const visibleBreakdown = result.estimatedBreakdown.filter((item) => item.max > 0);
+  const visibleBreakdown = (result.estimatedBreakdown ?? []).filter((item) => item.max > 0);
   const hasRefund = result.estimatedRefundMax > 0;
   const maxRefund = hasRefund ? result.estimatedRefundMax : undefined;
   const modeCfg = result.mode ? MODE_CONFIG[result.mode] : null;
@@ -385,7 +430,7 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
 
   // initial_fees: 一般的な考え方（費用別知識カード）
   const knowledgeCards = result.mode === "initial_fees"
-    ? result.estimatedBreakdown
+    ? (result.estimatedBreakdown ?? [])
         .map((item) => IF_FEE_KNOWLEDGE[item.feeType])
         .filter((k): k is NonNullable<typeof k> => k != null)
     : [];
@@ -394,7 +439,7 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
   const personalizedPoints = situationInfo
     ? getIfPersonalizedPoints(
         initialFeesMeta?.concernTheme ?? "",
-        result.issues,
+        result.issues.map((i) => i.explanation),
         result.overallRisk,
         {
           fees: initialFeesMeta?.fees,
@@ -613,6 +658,15 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
             <p className="text-sm text-slate-700 leading-relaxed">{situationInfo.desc}</p>
           </div>
 
+          {(() => {
+            const prefix = getSituationPrefix(initialFeesMeta?.situation);
+            return prefix ? (
+              <div className="mb-3 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
+                <p className="text-xs font-semibold text-blue-700 leading-relaxed">{prefix}</p>
+              </div>
+            ) : null;
+          })()}
+
           {personalizedPoints.length > 0 && (
             <div className="border-t border-slate-100 pt-3 space-y-2.5">
               <p className="text-xs font-semibold text-slate-500">今回の入力をふまえた確認ポイント</p>
@@ -810,6 +864,32 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* ── 不安解消ブロック ── */}
+      {result.mode === "initial_fees" && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">メールを送る前の不安に答えます</p>
+          {[
+            {
+              q: "不動産屋に嫌われませんか？",
+              a: "生成されるのは事実確認を求めるメールです。感情的な表現・返金要求・法的断定は一切含みません。「根拠を教えてください」という質問は借主の正当な権利であり、これを理由に入居を断ることはできません。",
+            },
+            {
+              q: "自動生成の文面で本当に通用しますか？",
+              a: "文面は国土交通省ガイドライン・宅建業法・消費者契約法に基づく論点を反映して生成されます。あなたの状況（支払い前後・説明の有無・費用の種類）を入力データから読み取り、汎用テンプレートではなく個別の状況に合わせた文面を生成します。",
+            },
+            {
+              q: "特約に書いてあっても意味がありますか？",
+              a: "特約には有効要件があります。①金額・条件が具体的に明記、②口頭で説明を受けた、③明示的に同意した、この3要件を欠く特約は有効性の確認対象です。「書いてあるから払わなければならない」とは限りません。確認メールで根拠の説明を求めることができます。",
+            },
+          ].map((item) => (
+            <div key={item.q} className="border-l-2 border-slate-200 pl-3 space-y-1">
+              <p className="text-xs font-semibold text-slate-700">Q. {item.q}</p>
+              <p className="text-xs text-slate-500 leading-relaxed">A. {item.a}</p>
+            </div>
+          ))}
         </div>
       )}
 
