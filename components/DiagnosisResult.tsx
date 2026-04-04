@@ -412,8 +412,8 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
   const docChecklist = (result.mode === "initial_fees" && initialFeesMeta?.situation)
     ? (IF_DOCUMENTS_BY_SITUATION[initialFeesMeta.situation] ?? IF_DOCUMENTS_BY_SITUATION["pre_payment"])
     : null;
-  const confirmTemplate = (result.mode === "initial_fees" && initialFeesMeta?.situation)
-    ? getIfConfirmationTemplate(initialFeesMeta.situation)
+  const confirmTemplate = result.mode === "initial_fees"
+    ? getIfConfirmationTemplate(initialFeesMeta?.situation ?? "pre_payment")
     : null;
 
   // analytics: fire once on result mount
@@ -823,7 +823,7 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
                 確認用テンプレ
               </p>
-              <p className="text-xs text-slate-400 mt-0.5">事実確認型 ・ そのままコピーして使えます</p>
+              <p className="text-xs text-slate-400 mt-0.5">汎用テンプレ — 診断内容によらず同じ文面</p>
             </div>
             <CopyButton text={confirmTemplate} />
           </div>
@@ -833,6 +833,17 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
           <p className="text-xs text-slate-400 mt-3 leading-relaxed">
             ※ このテンプレは事実確認を目的としたものです。送付の判断・文面の修正はご自身でご確認ください。
           </p>
+        </div>
+      )}
+
+      {/* ── 無料 vs 有料 一行比較 ── */}
+      {confirmTemplate && (
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs px-1">
+          <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-500 rounded px-2 py-0.5 font-medium">無料テンプレ</span>
+          <span className="text-slate-400">汎用文面（どの案件も同じ内容）</span>
+          <span className="text-slate-300 font-bold">→</span>
+          <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-700 rounded px-2 py-0.5 font-medium">¥980 初動キット</span>
+          <span className="text-amber-700 font-medium">この診断内容を反映した個別文</span>
         </div>
       )}
 
