@@ -95,6 +95,29 @@ export const initialFeesSchema = z.object({
   couldRefuse: z.enum(["yes", "no", "refused_and_pressured", "told_no_contract", "unknown"]),
   hasDocuments: z.enum(["yes", "no", "unknown"]),
   facts: z.array(factItemSchema).min(1, "費用を1つ以上入力してください"),
+  claimedTotalAmount: z.number().positive().optional(),
+  monthlyRent: z.number().positive().optional(),
+  depositAmount: z.number().nonnegative().optional(),
+  keyMoneyAmount: z.number().nonnegative().optional(),
+  guarantorStatus: z.enum(["has", "none", "unknown"]).optional(),
+  guaranteeBaseFee: z.number().positive().optional(),
+  guaranteeAdminFee: z.number().positive().optional(),
+  feeAmounts: z.object({
+    agency_fee: z.number().positive().optional(),
+    key_exchange: z.number().positive().optional(),
+    cleaning: z.number().positive().optional(),
+    guarantor: z.number().positive().optional(),
+    disinfection: z.number().positive().optional(),
+    support_24h: z.number().positive().optional(),
+    admin_fee: z.number().positive().optional(),
+    other: z.number().positive().optional(),
+  }).optional(),
+  marketContext: z.object({
+    region: z.enum(["metro", "local"]),
+    season: z.enum(["peak", "off"]),
+    buildingAge: z.enum(["new", "young", "old"]),
+    areaType: z.enum(["urban", "local"]).nullable().optional(),
+  }).optional(),
 });
 
 export const renewalSchema = z.object({

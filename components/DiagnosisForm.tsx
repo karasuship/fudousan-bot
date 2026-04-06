@@ -321,7 +321,13 @@ export default function DiagnosisForm() {
   const [expandedFee, setExpandedFee] = useState<string | null>(null);
   const [estimateRegion, setEstimateRegion] = useState<"metro" | "local">("metro");
   const [estimateSeason, setEstimateSeason] = useState<"peak" | "off">("peak");
-  const [estimateBuilding, setEstimateBuilding] = useState<"new" | "old">("old");
+  const [estimateBuilding, setEstimateBuilding] = useState<"new" | "young" | "old">("old");
+  const [feeAmounts, setFeeAmounts] = useState<Partial<Record<string, string>>>({});
+  const [depositStr, setDepositStr] = useState("");
+  const [keyMoneyStr, setKeyMoneyStr] = useState("");
+  const [guarantorStatus, setGuarantorStatus] = useState<"has" | "none" | "unknown" | "">("");
+  const [guaranteeBaseFeeStr, setGuaranteeBaseFeeStr] = useState("");
+  const [guaranteeAdminFeeStr, setGuaranteeAdminFeeStr] = useState("");
 
   function set<K extends keyof AllModesForm>(key: K, value: AllModesForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -374,6 +380,9 @@ export default function DiagnosisForm() {
     });
     setFeeQueue([]);
     setRentStr("");
+    setGuarantorStatus("");
+    setGuaranteeBaseFeeStr("");
+    setGuaranteeAdminFeeStr("");
   }
 
   function goBack() {
@@ -396,7 +405,9 @@ export default function DiagnosisForm() {
       setFeeQueue(feeQueue.slice(1));
       if (next === "agency_fee") setIfStep(8);
       else if (next === "key_exchange") setIfStep(9);
-      else setIfStep(10);
+      else if (next === "cleaning") setIfStep(10);
+      else if (next === "guarantor") setIfStep(11);
+      else setIfStep(7);
     } else {
       setIfStep(7);
     }
@@ -429,7 +440,6 @@ export default function DiagnosisForm() {
           facts.push({
             perceivedLabel: "仲介手数料",
             realityCategory: "agency",
-            amount: form.amountStr ? Number(form.amountStr) : undefined,
             detail: {
               type: "agency",
               amountMonths: ifFeeDetail.agencyFeeMonths || "unknown",
@@ -472,25 +482,54 @@ export default function DiagnosisForm() {
           });
         }
 
-        // その他の費用（guarantor, other）は unknown として追加
+        // 個別処理が必要な残りの費用
         const otherFees = form.fees.filter(
           (f) => !["agency_fee", "key_exchange", "cleaning"].includes(f)
         );
         for (const fee of otherFees) {
-          facts.push({
-            perceivedLabel: fee === "guarantor" ? "保証会社費用" : "その他費用",
-            realityCategory: fee === "guarantor" ? "guarantor" : "unknown",
-            detail:
-              fee === "guarantor"
-                ? {
-                    type: "guarantor",
-                    wasMandatory: true,
-                    hadChoiceOfCompany: false,
-                    hasRenewalFee: false,
-                  }
-                : { type: "unknown", labelOnInvoice: "その他" },
-          });
+          if (fee === "guarantor") {
+            facts.push({
+              perceivedLabel: "保証会社費用",
+              realityCategory: "guarantor",
+              detail: { type: "guarantor", wasMandatory: true, hadChoiceOfCompany: false, hasRenewalFee: false },
+            });
+          } else if (fee === "disinfection") {
+            facts.push({
+              perceivedLabel: "消毒・除菌代",
+              realityCategory: "unknown",
+              detail: { type: "unknown", labelOnInvoice: "消毒・除菌代" },
+            });
+          } else if (fee === "support_24h") {
+            facts.push({
+              perceivedLabel: "24時間サポートプラン",
+              realityCategory: "support_plan",
+              detail: { type: "support_plan", planName: "24時間サポートプラン", wasExplained: false, couldRefuse: false },
+            });
+          } else if (fee === "admin_fee") {
+            facts.push({
+              perceivedLabel: "事務手数料・書類作成費",
+              realityCategory: "document_fee",
+              detail: { type: "document_fee", labelOnInvoice: "事務手数料", hasExplanation: false },
+            });
+          } else {
+            facts.push({
+              perceivedLabel: "その他費用",
+              realityCategory: "unknown",
+              detail: { type: "unknown", labelOnInvoice: "その他" },
+            });
+          }
         }
+
+        // feeAmounts: 入力があった費用金額のみ含める
+        const feeAmountsPayload: InitialFeesInput["feeAmounts"] = {};
+        for (const [k, v] of Object.entries(feeAmounts)) {
+          if (v && Number(v) > 0) {
+            (feeAmountsPayload as Record<string, number>)[k] = Number(v);
+          }
+        }
+        // guarantor fields (split送信のみ・feeAmounts.guarantor への再合算はしない)
+        const guaranteeBaseFeeNum = guaranteeBaseFeeStr ? Number(guaranteeBaseFeeStr) : undefined;
+        const guaranteeAdminFeeNum = guaranteeAdminFeeStr ? Number(guaranteeAdminFeeStr) : undefined;
 
         return {
           mode: "initial_fees" as const,
@@ -500,6 +539,20 @@ export default function DiagnosisForm() {
           hasDocuments,
           facts,
           emailTone: form.emailTone,
+          claimedTotalAmount: form.amountStr ? Number(form.amountStr) : undefined,
+          monthlyRent: rentStr ? Number(rentStr) : undefined,
+          depositAmount: depositStr ? Number(depositStr) : undefined,
+          keyMoneyAmount: keyMoneyStr ? Number(keyMoneyStr) : undefined,
+          feeAmounts: Object.keys(feeAmountsPayload ?? {}).length > 0 ? feeAmountsPayload : undefined,
+          guarantorStatus: guarantorStatus || undefined,
+          guaranteeBaseFee: guaranteeBaseFeeNum,
+          guaranteeAdminFee: guaranteeAdminFeeNum,
+          marketContext: {
+            region: estimateRegion,
+            season: estimateSeason,
+            buildingAge: estimateBuilding,
+            areaType: estimateRegion === "metro" ? "urban" : "local",
+          },
         };
       }
       case "renewal":
@@ -709,6 +762,9 @@ export default function DiagnosisForm() {
                 });
                 setFeeQueue([]);
                 setRentStr("");
+                setGuarantorStatus("");
+                setGuaranteeBaseFeeStr("");
+                setGuaranteeAdminFeeStr("");
               }}
               className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
             >
@@ -824,7 +880,7 @@ export default function DiagnosisForm() {
                     {[
                       { value: "overall" as IfConcernTheme, label: "全体的に高い・何に払っているかわからない", fees: [] as FeeType[] },
                       { value: "agency" as IfConcernTheme, label: "仲介手数料が1ヶ月分請求されている", fees: ["agency_fee"] as FeeType[] },
-                      { value: "optional" as IfConcernTheme, label: "断れると思わなかった費用がある（消毒・サポートプランなど）", fees: ["other"] as FeeType[] },
+                      { value: "optional" as IfConcernTheme, label: "断れると思わなかった費用がある（消毒・サポートプランなど）", fees: ["disinfection", "support_24h"] as FeeType[] },
                       { value: "key" as IfConcernTheme, label: "鍵交換代を請求されている", fees: ["key_exchange"] as FeeType[] },
                       { value: "cleaning" as IfConcernTheme, label: "清掃代・クリーニング代を請求されている", fees: ["cleaning"] as FeeType[] },
                       { value: "guarantor" as IfConcernTheme, label: "保証会社費用の内訳がわからない", fees: ["guarantor"] as FeeType[] },
@@ -870,31 +926,55 @@ export default function DiagnosisForm() {
                     </p>
                     <div className="space-y-2">
                       {(() => {
-                        const NEW_FEE_OPTIONS: { value: FeeType; label: string; detail: string }[] = [
+                        const NEW_FEE_OPTIONS: { value: FeeType; label: string; tier: string; tierColor: string; detail: string }[] = [
                           {
                             value: "agency_fee",
-                            label: "仲介手数料（1ヶ月分？　書面で承諾しましたか？）",
+                            label: "仲介手数料",
+                            tier: "確認余地あり",
+                            tierColor: "bg-amber-100 text-amber-700",
                             detail: "法律上、あなた（借主）から取れる上限は原則0.5ヶ月分です。不動産屋は大家さん（貸主）からも手数料をもらえるため、あなたから1ヶ月分もらわなくても収入は成立します。1ヶ月分を請求するには、あなたが書面で承諾した記録が必要です。口頭の説明や重説の読み上げだけでは承諾になりません。",
                           },
                           {
                             value: "key_exchange",
-                            label: "鍵交換代（本来は大家さん負担・交換されましたか？）",
+                            label: "鍵交換代",
+                            tier: "確認余地あり",
+                            tierColor: "bg-amber-100 text-amber-700",
                             detail: "鍵交換は大家さん（貸主）が次の入居者のために行う管理業務です。費用も大家さんが負担するのが原則で、あなた（借主）が払う理由は本来ありません。さらに、実際に交換されたかどうかの確認も必要です。業者名・実施日・領収書・シリンダー交換の確認・鍵の本数が揃っていない請求は根拠がありません。",
                           },
                           {
                             value: "cleaning",
-                            label: "清掃代（誰の退去後の清掃ですか？　二重払いになっていませんか？）",
+                            label: "清掃代",
+                            tier: "確認余地あり",
+                            tierColor: "bg-amber-100 text-amber-700",
                             detail: "前の住人が退去した後の清掃は大家さん（貸主）の負担が原則です。あなた（借主）が入居する前の話なので、払う理由がありません。退去時清掃の前払いとして請求されている場合、退去時にさらに請求されると二重払いになります。敷金とも別なら三重になる場合もあります。何のための清掃か説明を受けていなければ、まずそれを確認する権利があります。",
                           },
                           {
                             value: "guarantor",
-                            label: "保証会社費用（自分で申し込むと安くなる場合があります）",
+                            label: "保証会社費用",
+                            tier: "条件次第",
+                            tierColor: "bg-blue-100 text-blue-700",
                             detail: "保証会社は大家さん（貸主）のために家賃未払いリスクに備える会社です。本来は大家さん側のコストです。ただし契約条件として加入を求められる場合、会社を自分で選べることがあります。不動産屋経由だと委託手数料が上乗せされるため、直接申し込めば安くなる場合があります。更新時にも費用が発生するかどうかも事前に確認が必要です。",
                           },
                           {
-                            value: "other",
-                            label: "消毒・除菌代／サポートプラン／書類作成費など（断れる・根拠を確認できる）",
-                            detail: "消毒・除菌は任意のサービスです。「必須」「全員やっています」は事実ではなく、断っても契約できます。24時間サポートプランも任意で、すでに加入している火災保険と内容が重複する場合があります。書類作成費・事務手数料は仲介手数料に含まれる業務であり、別途請求するには具体的な根拠の説明が必要です。仲介手数料と合計して家賃の1.1ヶ月分を超えていないかも確認してください。",
+                            value: "disinfection",
+                            label: "消毒・除菌代",
+                            tier: "確認余地あり",
+                            tierColor: "bg-amber-100 text-amber-700",
+                            detail: "消毒・除菌は任意のサービスです。「必須」「全員やっています」は事実ではなく、断っても契約できます。業者によっては入居前の定期清掃と重複する場合もあり、支払い義務はありません。",
+                          },
+                          {
+                            value: "support_24h",
+                            label: "24時間サポートプラン",
+                            tier: "確認余地あり",
+                            tierColor: "bg-amber-100 text-amber-700",
+                            detail: "24時間サポートプランは任意加入です。すでに加入している火災保険と内容が重複することが多く、二重払いになる場合があります。断っても入居できます。加入が必須とされた場合はその根拠の説明を求めましょう。",
+                          },
+                          {
+                            value: "admin_fee",
+                            label: "事務手数料・書類作成費",
+                            tier: "確認余地あり",
+                            tierColor: "bg-amber-100 text-amber-700",
+                            detail: "書類作成費・事務手数料・契約事務費などは、仲介手数料に含まれる業務に対して別途請求されるケースです。仲介手数料とあわせて家賃の1.1ヶ月分を超えていないか確認が必要です。別途請求するには具体的な根拠の書面説明が必要です。",
                           },
                         ];
                         return NEW_FEE_OPTIONS.map((opt) => (
@@ -911,11 +991,41 @@ export default function DiagnosisForm() {
                                   : "bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
                               }`}
                             >
-                              {opt.label}
+                              <span className="flex items-center justify-between gap-2">
+                                <span>{opt.label}</span>
+                                <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${
+                                  form.fees.includes(opt.value)
+                                    ? "bg-white/20 text-white"
+                                    : opt.tierColor
+                                }`}>
+                                  {opt.tier}
+                                </span>
+                              </span>
                             </button>
                             {expandedFee === opt.value && (
-                              <div className="mt-1 mb-2 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 leading-relaxed">
-                                {opt.detail}
+                              <div className="mt-1 mb-2 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 leading-relaxed space-y-2">
+                                <p>{opt.detail}</p>
+                                {form.fees.includes(opt.value) && (
+                                  <div className="flex items-center gap-2 pt-1">
+                                    <span className="text-slate-500 shrink-0">請求金額（任意）:</span>
+                                    <div className="relative w-36">
+                                      <input
+                                        type="number"
+                                        value={feeAmounts[opt.value] ?? ""}
+                                        onChange={(e) =>
+                                          setFeeAmounts((prev) => ({
+                                            ...prev,
+                                            [opt.value]: e.target.value,
+                                          }))
+                                        }
+                                        placeholder="例: 55000"
+                                        min={0}
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-7"
+                                      />
+                                      <span className="absolute right-2.5 top-1.5 text-xs text-slate-400">円</span>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
@@ -924,90 +1034,113 @@ export default function DiagnosisForm() {
                     </div>
                     {feeError && <p className="text-red-500 text-xs mt-2">費用を1つ以上選択してください</p>}
                   </div>
-                  <div>
-                    <p className="text-xs font-semibold text-slate-700 mb-1.5">
-                      月額賃料を入れると相場と比較できます
-                    </p>
-                    <p className="text-xs text-slate-500 mb-2">
-                      入力するとStep7で「業界相場 vs 適正水準」の詳細比較が表示されます
-                    </p>
-                    <div className="relative w-44">
-                      <input
-                        type="number"
-                        value={rentStr}
-                        onChange={(e) => setRentStr(e.target.value)}
-                        placeholder="例: 70000"
-                        min={0}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
-                      />
-                      <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700 mb-1">
+                        月額賃料（ガイドライン目安との比較に使います）
+                      </p>
+                      <div className="relative w-44">
+                        <input
+                          type="number"
+                          value={rentStr}
+                          onChange={(e) => setRentStr(e.target.value)}
+                          placeholder="例: 70000"
+                          min={0}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
+                        />
+                        <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <p className="text-xs font-semibold text-slate-700 mb-1.5">
-                      請求総額（入れると過不足がわかります）
-                    </p>
-                    <div className="relative w-44">
-                      <input
-                        type="number"
-                        value={form.amountStr}
-                        onChange={(e) => set("amountStr", e.target.value)}
-                        placeholder="例: 150000"
-                        min={0}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
-                      />
-                      <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
-                    </div>
-                    {(() => {
-                      const fmt = (n: number) => n.toLocaleString("ja-JP") + "円";
-                      const rent = Number(rentStr);
-                      const amount = Number(form.amountStr);
-                      const ratio = rent > 0 && amount > 0 ? amount / rent : null;
-                      if (ratio === null) return null;
-
-                      // 業界相場判定
-                      const industryComment =
-                        ratio <= 4 ? "業界相場の範囲内です。" :
-                        ratio <= 6 ? "業界相場よりやや高めです。" :
-                        "業界相場を大きく上回っています。";
-
-                      // ガイドライン水準（敷金1ヶ月+仲介0.5ヶ月+火災保険0.8万 の目安）
-                      const guidelineMonths = 1 + 0.55 + 0.08;
-                      const guidelineAmount = Math.round(rent * guidelineMonths);
-                      const gap = amount - guidelineAmount;
-
-                      const bgClass =
-                        ratio <= 4 ? "bg-slate-50 border-slate-200" :
-                        ratio <= 6 ? "bg-amber-50 border-amber-200" :
-                        "bg-red-50 border-red-200";
-
-                      const textClass =
-                        ratio <= 4 ? "text-slate-700" :
-                        ratio <= 6 ? "text-amber-700" :
-                        "text-red-700";
-
-                      return (
-                        <div className={`rounded-xl px-4 py-3 text-xs border mt-2 space-y-1.5 ${bgClass}`}>
-                          <p className={`font-semibold ${textClass}`}>
-                            賃料の約{ratio.toFixed(1)}ヶ月分 ― {industryComment}
-                          </p>
-                          {gap > 0 && (
-                            <p className="text-slate-600">
-                              適正水準の目安は約{fmt(guidelineAmount)}円（賃料の約{guidelineMonths.toFixed(1)}ヶ月分）です。
-                              <span className="font-semibold text-red-600"> 差額{fmt(gap)}円</span>が確認・交渉の余地になります。
-                            </p>
-                          )}
-                          {gap <= 0 && (
-                            <p className="text-slate-600">
-                              適正水準（約{fmt(guidelineAmount)}円）に近い金額です。ただし科目ごとの根拠確認は別途必要です。
-                            </p>
-                          )}
-                          <p className="text-slate-400">
-                            ※ 適正水準＝敷金1ヶ月＋仲介手数料0.5ヶ月＋火災保険の目安。Step7で科目別の詳細を確認できます。
-                          </p>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700 mb-1">
+                        敷金・礼金（入れると比較精度が上がります）
+                      </p>
+                      <div className="flex gap-3 flex-wrap">
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">敷金</p>
+                          <div className="relative w-36">
+                            <input
+                              type="number"
+                              value={depositStr}
+                              onChange={(e) => setDepositStr(e.target.value)}
+                              placeholder="例: 70000"
+                              min={0}
+                              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
+                            />
+                            <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
+                          </div>
                         </div>
-                      );
-                    })()}
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">礼金</p>
+                          <div className="relative w-36">
+                            <input
+                              type="number"
+                              value={keyMoneyStr}
+                              onChange={(e) => setKeyMoneyStr(e.target.value)}
+                              placeholder="例: 70000"
+                              min={0}
+                              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
+                            />
+                            <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-700 mb-1">
+                        請求総額（全費用の合計）
+                      </p>
+                      <div className="relative w-44">
+                        <input
+                          type="number"
+                          value={form.amountStr}
+                          onChange={(e) => set("amountStr", e.target.value)}
+                          placeholder="例: 250000"
+                          min={0}
+                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
+                        />
+                        <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
+                      </div>
+                      {(() => {
+                        const fmt = (n: number) => n.toLocaleString("ja-JP") + "円";
+                        const rent = Number(rentStr);
+                        const amount = Number(form.amountStr);
+                        const deposit = Number(depositStr) || 0;
+                        const keyMoney = Number(keyMoneyStr) || 0;
+                        if (rent <= 0 || amount <= 0) return null;
+
+                        const ratio = amount / rent;
+                        // ガイドライン目安 = 敷金 + 礼金 + 初月賃料 + 仲介0.5ヶ月 + 火災保険目安
+                        const guidelineAmount = deposit + keyMoney + Math.round(rent * (1 + 0.55 + 0.08));
+                        const gap = amount - guidelineAmount;
+
+                        const industryComment = "業界的には相場です。もっと正確に言うと、水増し請求が慣例化している業界の相場です。";
+
+                        return (
+                          <div className="rounded-xl px-4 py-3 text-xs border mt-2 space-y-1.5 bg-red-50 border-red-200">
+                            <p className="font-semibold text-red-700">
+                              賃料の約{ratio.toFixed(1)}ヶ月分 ― {industryComment}
+                            </p>
+                            {gap > 0 && (
+                              <p className="text-slate-600">
+                                ガイドライン目安（約{fmt(guidelineAmount)}）と比べると、
+                                <span className="font-semibold text-red-600"> 約{fmt(gap)}上回っています。</span>
+                                この差額が確認・交渉の余地がある金額の目安です。
+                              </p>
+                            )}
+                            {gap <= 0 && (
+                              <p className="text-slate-600">
+                                ガイドライン目安（約{fmt(guidelineAmount)}）に近い水準です。ただし費用名目ごとの根拠確認は別途必要です。
+                              </p>
+                            )}
+                            <p className="text-red-400">
+                              ※ この目安は「本来必要とされる費用」をベースにした基準です
+                              {(deposit === 0 && keyMoney === 0) ? "（敷金・礼金を入力するとより正確な比較ができます）" : ""}
+                            </p>
+                          </div>
+                        );
+                      })()}
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -1018,11 +1151,13 @@ export default function DiagnosisForm() {
                       if (form.fees.includes("agency_fee")) queue.push("agency_fee");
                       if (form.fees.includes("key_exchange")) queue.push("key_exchange");
                       if (form.fees.includes("cleaning")) queue.push("cleaning");
+                      if (form.fees.includes("guarantor")) queue.push("guarantor");
                       if (queue.length > 0) {
                         setFeeQueue(queue.slice(1));
                         if (queue[0] === "agency_fee") setIfStep(8);
                         else if (queue[0] === "key_exchange") setIfStep(9);
-                        else setIfStep(10);
+                        else if (queue[0] === "cleaning") setIfStep(10);
+                        else setIfStep(11);
                       } else {
                         setIfStep(7);
                       }
@@ -1537,6 +1672,105 @@ export default function DiagnosisForm() {
                 </div>
               )}
 
+              {/* Step 11: 保証会社費用深掘り */}
+              {ifStep === 11 && (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">保証会社費用について確認します</p>
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 space-y-2 text-xs text-slate-700 leading-relaxed">
+                      <p>保証会社は大家さん（貸主）の家賃未払いリスクに備えるための会社です。本来は大家さん側のコストです。</p>
+                      <p>請求される費用には<span className="font-semibold">保証料本体</span>（保証会社への直接費用）と<span className="font-semibold">委託保証料</span>（不動産屋への手数料）が混在していることがあります。</p>
+                      <p className="text-slate-400">連帯保証人がいる場合、保証会社費用の相場は賃料の30%程度です。いない場合は50%程度が目安です。</p>
+                    </div>
+                  </div>
+
+                  {/* 質問1: 連帯保証人 */}
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-slate-700">連帯保証人はいますか？</p>
+                    <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 leading-relaxed">
+                      連帯保証人の有無によって保証会社費用の相場が変わります。両方いる場合は保証料が割安になるケースがあります。
+                    </p>
+                    {[
+                      { label: "いる（連帯保証人あり）", value: "has" as const, risk: "green" as const },
+                      { label: "いない", value: "none" as const, risk: "yellow" as const },
+                      { label: "わからない", value: "unknown" as const, risk: "neutral" as const },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setGuarantorStatus(opt.value)}
+                        className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, guarantorStatus === opt.value)}`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* 質問2: 費用内訳（質問1回答後） */}
+                  {guarantorStatus !== "" && (
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold text-slate-700">費用の内訳を教えてください（任意）</p>
+                      <p className="text-xs text-slate-500 leading-relaxed">
+                        わかる範囲で入力すると、相場との比較や交渉ラインの計算精度が上がります。見積書に「保証料」「委託手数料」などの記載があれば参考にしてください。
+                      </p>
+                      <div className="space-y-2">
+                        <div>
+                          <p className="text-xs text-slate-600 mb-1">保証料本体（保証会社への費用）</p>
+                          <div className="relative w-44">
+                            <input
+                              type="number"
+                              value={guaranteeBaseFeeStr}
+                              onChange={(e) => setGuaranteeBaseFeeStr(e.target.value)}
+                              placeholder="例: 35000"
+                              min={0}
+                              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
+                            />
+                            <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-600 mb-1">委託保証料（不動産屋への手数料）</p>
+                          <div className="relative w-44">
+                            <input
+                              type="number"
+                              value={guaranteeAdminFeeStr}
+                              onChange={(e) => setGuaranteeAdminFeeStr(e.target.value)}
+                              placeholder="例: 20000"
+                              min={0}
+                              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
+                            />
+                            <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
+                          </div>
+                        </div>
+                      </div>
+                      {guarantorStatus === "has" && Number(guaranteeBaseFeeStr) > 0 && Number(rentStr) > 0 && (
+                        <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-800 space-y-1">
+                          <p className="font-semibold">連帯保証人あり：保証料本体の相場は賃料の約30%（{Math.round(Number(rentStr) * 0.3).toLocaleString("ja-JP")}円）</p>
+                          {Number(guaranteeBaseFeeStr) > Math.round(Number(rentStr) * 0.3) && (
+                            <p>入力された保証料本体（{Number(guaranteeBaseFeeStr).toLocaleString("ja-JP")}円）は相場を約{(Number(guaranteeBaseFeeStr) - Math.round(Number(rentStr) * 0.3)).toLocaleString("ja-JP")}円上回っています。</p>
+                          )}
+                        </div>
+                      )}
+                      {guarantorStatus === "none" && Number(guaranteeBaseFeeStr) > 0 && Number(rentStr) > 0 && (
+                        <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-800 space-y-1">
+                          <p className="font-semibold">連帯保証人なし：保証料本体の相場は賃料の約50%（{Math.round(Number(rentStr) * 0.5).toLocaleString("ja-JP")}円）</p>
+                          {Number(guaranteeBaseFeeStr) > Math.round(Number(rentStr) * 0.5) && (
+                            <p>入力された保証料本体（{Number(guaranteeBaseFeeStr).toLocaleString("ja-JP")}円）は相場を約{(Number(guaranteeBaseFeeStr) - Math.round(Number(rentStr) * 0.5)).toLocaleString("ja-JP")}円上回っています。</p>
+                          )}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => proceedFromFeeDetail()}
+                        className="w-full py-3 rounded-xl bg-blue-800 text-white text-sm font-semibold hover:bg-blue-700 transition-all shadow-sm"
+                      >
+                        次へ →
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Step 7: メールトーン + 送信ボタン */}
               {ifStep === 7 && (
                 <div className="space-y-4">
@@ -1576,7 +1810,7 @@ export default function DiagnosisForm() {
                             {v === "peak" ? "繁忙期（1〜3月）" : "閑散期（それ以外）"}
                           </button>
                         ))}
-                        {(["new", "old"] as const).map((v) => (
+                        {(["new", "young", "old"] as const).map((v) => (
                           <button
                             key={v}
                             type="button"
@@ -1587,7 +1821,7 @@ export default function DiagnosisForm() {
                                 : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
                             }`}
                           >
-                            {v === "new" ? "新築" : "既存物件"}
+                            {v === "new" ? "新築" : v === "young" ? "築浅（〜10年）" : "既存物件"}
                           </button>
                         ))}
                       </div>

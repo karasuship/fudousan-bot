@@ -74,7 +74,7 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
         {/* タイトル */}
         <p className="text-sm font-semibold text-amber-800">
           {maxRefund
-            ? `最大${fmt(maxRefund)}に相当する確認ポイントが見つかりました`
+            ? `${fmt(maxRefund)}の確認・交渉余地が見つかりました`
             : modeCfg?.ctaUrgency ?? "確認すべき費用が見つかりました"}
         </p>
 
@@ -97,7 +97,7 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
         {/* B: 数字→意味変換 */}
         <p className="text-xs text-amber-700 leading-relaxed">
           {maxRefund
-            ? "この範囲の費用について、一度整理して確認しておくと安心です。"
+            ? "そのまま払う前に、この金額の根拠を書面で確認しましょう"
             : "いくつか確認しておきたい論点がある状態です。"}
         </p>
 
@@ -130,9 +130,9 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
           </svg>
           <span>
             <strong className="font-semibold text-slate-800">¥980</strong>
-            <span className="text-slate-500">で、最大</span>
+            <span className="text-slate-500">で、</span>
             <strong className="font-semibold text-slate-800">{fmt(maxRefund)}</strong>
-            <span className="text-slate-500">の損失を防げる可能性があります</span>
+            <span className="text-slate-500">の確認・交渉余地に対応した個別文面を取得</span>
           </span>
         </div>
       )}

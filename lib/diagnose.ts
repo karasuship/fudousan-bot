@@ -1,5 +1,8 @@
-import type { InitialFeesInput, DiagnosisResult, DetectedIssue } from "./types";
+import type { InitialFeesInput, DiagnosisResult, DetectedIssue, NegotiationLines, NegotiationLineItem, GuaranteeBreakdown } from "./types";
+import type { FactItem } from "./types";
 import { ISSUE_DB } from "./issueDB";
+import { evaluateFee } from "./feeEvaluator";
+import type { FeeEvalInput, ExplanationType, FeeTypeKey } from "./feeEvaluator";
 
 const DISCLAIMER =
   "本診断結果は一般的な情報提供を目的としており、法的助言ではありません。個別の契約内容・状況によって判断は異なります。重要な判断をされる場合は、弁護士・司法書士等の専門家にご相談ください。";
@@ -85,7 +88,7 @@ function detectIssuesForInput(input: InitialFeesInput): DetectedIssue[] {
   }));
 }
 
-function estimateRefund(facts: any[]): { min: number; max: number } {
+function estimateRefund(facts: any[], claimedTotalAmount?: number): { min: number; max: number } {
   let min = 0;
   let max = 0;
   for (const fact of facts) {
@@ -112,7 +115,463 @@ function estimateRefund(facts: any[]): { min: number; max: number } {
         break;
     }
   }
-  return { min, max: Math.min(max, 200000) };
+  max = Math.min(max, 200000);
+  if (claimedTotalAmount) {
+    max = Math.min(max, claimedTotalAmount);
+  }
+  if (min > max) min = max;
+  return { min, max };
+}
+
+const LANDING_OPTIONS: Record<string, string[]> = {
+  agency_fee: [
+    "0.5ヶ月までの調整",
+    "他費用との相殺調整",
+    "フリーレントへの振替",
+  ],
+  key_exchange: [
+    "全額削除",
+    "フリーレントへの振替",
+    "大家負担への変更",
+  ],
+  cleaning: [
+    "全額削除",
+    "退去時請求との二重回避",
+    "フリーレントへの振替",
+  ],
+  guarantor: [
+    "保証会社の見直し（他社比較）",
+    "委託手数料の有無を確認",
+    "直接申込への切替確認",
+  ],
+  guarantee_base: [
+    "保証会社の見直し（他社比較）",
+    "プラン変更の確認",
+    "相場超過分の調整確認",
+    "他費用との相殺確認",
+  ],
+  guarantee_admin: [
+    "仲介手数料への組み込み確認",
+    "別途請求理由の確認",
+    "他費用との相殺確認",
+  ],
+  disinfection: [
+    "全額削除（任意サービス）",
+    "フリーレントへの振替",
+    "不要なら即断れる",
+  ],
+  support_24h: [
+    "全額削除（任意加入）",
+    "火災保険との内容重複を確認",
+    "フリーレントへの振替",
+  ],
+  admin_fee: [
+    "仲介手数料への組み込み確認",
+    "根拠の書面説明を要求",
+    "削除交渉",
+  ],
+  other: [
+    "任意オプションの削除",
+    "フリーレントへの振替",
+    "必須費用からの切り離し",
+  ],
+};
+
+function getMarketFactor(context: InitialFeesInput["marketContext"]): number {
+  let factor = 1.0;
+  if (!context) return factor;
+
+  if (context.areaType === "urban") factor *= 0.9;
+  else if (context.areaType === "local") factor *= 1.1;
+
+  if (context.season === "peak") factor *= 0.85;
+  else if (context.season === "off") factor *= 1.15;
+
+  if (context.buildingAge === "new") factor *= 0.9;
+  else if (context.buildingAge === "old") factor *= 1.1;
+
+  return Math.min(1.3, Math.max(0.7, factor));
+}
+
+function convertToFreeRent(amount: number, rent: number): number {
+  return Math.min(6, Math.floor(amount / rent));
+}
+
+const feeTypeFactorMap: Record<string, number> = {
+  other: 0.9,
+  disinfection: 1.0, // 任意サービス：全額確認対象
+  support_24h: 1.0,  // 任意加入：全額確認対象
+  admin_fee: 0.9,    // 仲介手数料に含まれるべき業務
+  key_exchange: 0.75,
+  cleaning: 0.7,
+  agency_fee: 0.5,   // brokerage
+  guarantor: 0.7,
+  guarantee_base: 0.5, // 本体：相場超過分のみが確認対象
+  guarantee_admin: 1.0, // 委託費：全額確認対象
+};
+
+function upgradeNegotiability(n: "high" | "medium" | "low"): "high" | "medium" | "low" {
+  if (n === "low") return "medium";
+  return "high";
+}
+
+// ─── 保証料本体の相場超過額を算出 ─────────────────────────────────────────────
+function computeGuaranteeBaseExcess(
+  baseFee: number,
+  rent: number | undefined,
+  guarantorStatus: InitialFeesInput["guarantorStatus"]
+): number {
+  if (!rent) return 0;
+  const benchmarkRate = guarantorStatus === "has" ? 0.30 : 0.50;
+  const benchmark = Math.round(rent * benchmarkRate);
+  return Math.max(0, baseFee - benchmark);
+}
+
+function buildItemizedReviewBreakdown(
+  input: InitialFeesInput
+): DiagnosisResult["itemizedReviewBreakdown"] {
+  const { feeAmounts, marketContext } = input;
+  const hasGuaranteeSplit = input.guaranteeBaseFee !== undefined || input.guaranteeAdminFee !== undefined;
+  if (!feeAmounts && !hasGuaranteeSplit) return undefined;
+
+  const rent = input.monthlyRent;
+  const factor = getMarketFactor(input.marketContext);
+
+  const result: NonNullable<DiagnosisResult["itemizedReviewBreakdown"]> = [];
+
+  // 表示順固定: 任意費用（折れやすい順）→ 通常費用
+  type FeeAmountKey = keyof NonNullable<InitialFeesInput["feeAmounts"]>;
+  const entries: Array<{
+    key: FeeAmountKey;
+    label: string;
+    baseNegotiability: "high" | "medium" | "low";
+    calcReview: (amt: number) => { min: number; max: number };
+  }> = [
+    {
+      key: "disinfection",
+      label: "消毒・除菌代",
+      baseNegotiability: "high",
+      calcReview: (amt) => ({ min: 0, max: amt }),
+    },
+    {
+      key: "support_24h",
+      label: "24時間サポートプラン",
+      baseNegotiability: "high",
+      calcReview: (amt) => ({ min: 0, max: amt }),
+    },
+    {
+      key: "admin_fee",
+      label: "事務手数料・書類作成費",
+      baseNegotiability: "high",
+      calcReview: (amt) => ({ min: 0, max: amt }),
+    },
+    {
+      key: "other",
+      label: "その他任意費用",
+      baseNegotiability: "high",
+      calcReview: (amt) => ({ min: 0, max: amt }),
+    },
+    {
+      key: "key_exchange",
+      label: "鍵交換代",
+      baseNegotiability: "high",
+      calcReview: (amt) => ({ min: 0, max: amt }),
+    },
+    {
+      key: "cleaning",
+      label: "清掃代",
+      baseNegotiability: "high",
+      calcReview: (amt) => ({ min: 0, max: amt }),
+    },
+    {
+      key: "agency_fee",
+      label: "仲介手数料",
+      baseNegotiability: "medium",
+      calcReview: (amt) => {
+        if (rent && rent > 0) {
+          const legalHalf = Math.round(rent * 0.55);
+          const overPaid = amt - legalHalf;
+          const max = Math.min(amt, Math.max(0, overPaid));
+          return { min: 0, max };
+        }
+        return { min: 0, max: Math.round(amt * 0.5) };
+      },
+    },
+    // guarantor (フォールバック：sub-amountsがない場合のみ使用)
+    ...(!hasGuaranteeSplit ? [{
+      key: "guarantor" as FeeAmountKey,
+      label: "保証会社費用（本体）",
+      baseNegotiability: "medium" as const,
+      calcReview: (amt: number) => ({ min: 0, max: Math.min(amt, Math.round(amt * 0.3)) }),
+    }] : []),
+  ];
+
+  for (const entry of entries) {
+    const amt = feeAmounts?.[entry.key];
+    if (!amt) continue;
+
+    let negotiability = entry.baseNegotiability;
+
+    if (marketContext) {
+      // 閑散期または地方は交渉余地が増す
+      if (marketContext.season === "off") {
+        negotiability = upgradeNegotiability(negotiability);
+      }
+      if (marketContext.region === "local") {
+        negotiability = upgradeNegotiability(negotiability);
+      }
+      // 新築・築浅は鍵交換の交渉余地が下がる
+      if (
+        entry.key === "key_exchange" &&
+        (marketContext.buildingAge === "new" || marketContext.buildingAge === "young")
+      ) {
+        if (negotiability === "high") negotiability = "medium";
+      }
+    }
+
+    const { min, max: baseMax } = entry.calcReview(amt);
+    const feeFactor = feeTypeFactorMap[entry.key] ?? 0.7;
+    const reviewMax = Math.min(amt, Math.round(baseMax * factor * feeFactor));
+    result.push({
+      feeType: entry.key,
+      label: entry.label,
+      inputAmount: amt,
+      reviewMin: min,
+      reviewMax,
+      negotiability,
+      landingOptions: LANDING_OPTIONS[entry.key] ?? [],
+    });
+  }
+
+  // ─── 保証料本体・委託保証料の個別エントリ（sub-amountsが提供された場合のみ）
+  if (hasGuaranteeSplit) {
+    const rent = input.monthlyRent;
+    if (input.guaranteeBaseFee && input.guaranteeBaseFee > 0) {
+      const excess = computeGuaranteeBaseExcess(input.guaranteeBaseFee, rent, input.guarantorStatus);
+      let neg: "high" | "medium" | "low" = "medium";
+      if (marketContext?.season === "off") neg = upgradeNegotiability(neg);
+      if (marketContext?.region === "local") neg = upgradeNegotiability(neg);
+      result.push({
+        feeType: "guarantee_base",
+        label: "保証料（本体）",
+        inputAmount: input.guaranteeBaseFee,
+        reviewMin: 0,
+        reviewMax: excess,
+        negotiability: neg,
+        landingOptions: LANDING_OPTIONS.guarantee_base ?? [],
+      });
+    }
+    if (input.guaranteeAdminFee && input.guaranteeAdminFee > 0) {
+      let neg: "high" | "medium" | "low" = "high";
+      if (marketContext?.season === "off") neg = upgradeNegotiability(neg);
+      result.push({
+        feeType: "guarantee_admin",
+        label: "委託保証料・保証関連事務費",
+        inputAmount: input.guaranteeAdminFee,
+        reviewMin: 0,
+        reviewMax: input.guaranteeAdminFee,
+        negotiability: neg,
+        landingOptions: LANDING_OPTIONS.guarantee_admin ?? [],
+      });
+    }
+  }
+
+  return result.length > 0 ? result : undefined;
+}
+
+// ─── 保証会社費用内訳を算出 ──────────────────────────────────────────────────
+function computeGuaranteeBreakdown(input: InitialFeesInput): GuaranteeBreakdown | undefined {
+  if (input.guaranteeBaseFee === undefined && input.guaranteeAdminFee === undefined) return undefined;
+  const baseFee = input.guaranteeBaseFee;
+  const adminFee = input.guaranteeAdminFee ?? 0;
+  const baseExcess = baseFee
+    ? computeGuaranteeBaseExcess(baseFee, input.monthlyRent, input.guarantorStatus)
+    : 0;
+  return {
+    baseFee,
+    adminFee: input.guaranteeAdminFee,
+    baseExcess,
+    guarantorStatus: input.guarantorStatus,
+    totalPotential: baseExcess + adminFee,
+  };
+}
+
+// ─── 交渉ラインを内訳付きで算出 ─────────────────────────────────────────────
+function buildNegotiationLines(input: InitialFeesInput): NegotiationLines | undefined {
+  const fa = input.feeAmounts;
+  if (!fa && input.guaranteeBaseFee === undefined && input.guaranteeAdminFee === undefined) return undefined;
+
+  const rent = input.monthlyRent;
+  const factor = getMarketFactor(input.marketContext);
+
+  const guaranteeAdminFee = input.guaranteeAdminFee ?? 0;
+  const baseExcess = input.guaranteeBaseFee
+    ? computeGuaranteeBaseExcess(input.guaranteeBaseFee, rent, input.guarantorStatus)
+    : 0;
+
+  // ── 最低ライン：ほぼ確実に確認・調整できる費目 ───────────────────────────
+  const minItems: NegotiationLineItem[] = [];
+  if (guaranteeAdminFee > 0)
+    minItems.push({ feeType: "guarantee_admin", label: "委託保証料・保証関連事務費", amount: guaranteeAdminFee, basis: "仲介手数料に含まれる性質の手続き費用" });
+  if (fa?.disinfection)
+    minItems.push({ feeType: "disinfection", label: "消毒・除菌代", amount: fa.disinfection, basis: "任意サービス" });
+  if (fa?.support_24h)
+    minItems.push({ feeType: "support_24h", label: "24時間サポートプラン", amount: fa.support_24h, basis: "任意加入" });
+  if (fa?.admin_fee)
+    minItems.push({ feeType: "admin_fee", label: "事務手数料・書類作成費", amount: fa.admin_fee, basis: "仲介手数料に含まれる業務" });
+  if (fa?.other)
+    minItems.push({ feeType: "other", label: "その他任意費用", amount: fa.other, basis: "任意費用" });
+
+  // ── 現実ライン：最低 + 条件付きで通りやすい費目 ─────────────────────────
+  const realItems: NegotiationLineItem[] = [...minItems];
+  if (fa?.key_exchange) {
+    const amt = Math.round(fa.key_exchange * factor * feeTypeFactorMap.key_exchange);
+    if (amt > 0) realItems.push({ feeType: "key_exchange", label: "鍵交換代", amount: amt, basis: "借主負担の根拠確認が必要" });
+  }
+  if (fa?.cleaning) {
+    const amt = Math.round(fa.cleaning * factor * feeTypeFactorMap.cleaning);
+    if (amt > 0) realItems.push({ feeType: "cleaning", label: "清掃代", amount: amt, basis: "入居前清掃は貸主負担が原則" });
+  }
+  if (baseExcess > 0)
+    realItems.push({ feeType: "guarantee_base", label: "保証料（相場超過分）", amount: baseExcess, basis: `相場(${input.guarantorStatus === "has" ? "連帯保証人あり30%" : "連帯保証人なし50%"})超過分` });
+
+  // ── 強気ライン：現実 + 最大値を狙う場合 ────────────────────────────────
+  const aggrItems: NegotiationLineItem[] = [...realItems];
+  if (fa?.agency_fee) {
+    const overPaid = rent
+      ? Math.max(0, fa.agency_fee - Math.round(rent * 0.55))
+      : Math.round(fa.agency_fee * 0.5);
+    if (overPaid > 0) aggrItems.push({ feeType: "agency_fee", label: "仲介手数料（超過分）", amount: overPaid, basis: "0.5ヶ月超の部分" });
+  }
+
+  const sum = (items: NegotiationLineItem[]) => items.reduce((s, i) => s + i.amount, 0);
+  return {
+    minimum:   { total: sum(minItems),  items: minItems  },
+    realistic: { total: sum(realItems), items: realItems },
+    aggressive:{ total: sum(aggrItems), items: aggrItems },
+  };
+}
+
+// ─── 説明レベルのマッピング ───────────────────────────────────────────────────
+const EXPLANATION_TO_EVAL: Record<InitialFeesInput["explanation"], ExplanationType> = {
+  written: "formal",
+  oral: "weak_oral",
+  none: "none",
+  pressured: "pressure",
+  rushed: "pressure",
+};
+
+// ─── FactItem → FeeEvalInput マッピング ───────────────────────────────────────
+function mapFactToEvalInput(
+  fact: FactItem,
+  globalExplanation: InitialFeesInput["explanation"]
+): FeeEvalInput | null {
+  const explanation = EXPLANATION_TO_EVAL[globalExplanation] ?? "none";
+
+  switch (fact.realityCategory) {
+    case "agency": {
+      const d = fact.detail as import("./types").AgencyDetail;
+      return {
+        feeType: "broker",
+        label: "仲介手数料",
+        mandatory: d.amountMonths === "over" ? "agent" : "unknown",
+        explanation,
+        evidence: "claimed_only",
+        benefit: "mixed",
+        salesJustification: "none",
+      };
+    }
+    case "key_exchange": {
+      const d = fact.detail as import("./types").KeyExchangeDetail;
+      const evidence =
+        d.exchangeConfirmed === "confirmed" ? "documented" :
+        d.exchangeConfirmed === "unconfirmed" ? "claimed_only" : "none";
+      return {
+        feeType: "key_exchange",
+        label: "鍵交換代",
+        mandatory: "agent",
+        explanation,
+        evidence,
+        benefit: "landlord",
+        salesJustification: "none",
+      };
+    }
+    case "cleaning": {
+      const d = fact.detail as import("./types").CleaningDetail;
+      const evidence =
+        d.hasInvoice ? "documented" :
+        d.hasContractBasis === "yes" ? "claimed_only" : "unknown";
+      return {
+        feeType: "cleaning",
+        label: "清掃代",
+        mandatory: d.wasExplainedAsMandatory ? "agent" : "not_explained",
+        explanation,
+        evidence,
+        benefit: "landlord",
+        salesJustification: "none",
+      };
+    }
+    case "guarantor": {
+      const d = fact.detail as import("./types").GuarantorDetail;
+      return {
+        feeType: "guarantee",
+        label: "保証会社費用",
+        mandatory: d.wasMandatory ? "owner" : "optional",
+        explanation,
+        evidence: "claimed_only",
+        benefit: "mixed",
+        salesJustification: "none",
+      };
+    }
+    case "support_plan": {
+      const d = fact.detail as import("./types").SupportPlanDetail;
+      return {
+        feeType: "support",
+        label: d.planName || "サポートプラン",
+        mandatory: d.couldRefuse ? "optional" : "agent",
+        explanation: d.wasExplained ? (explanation === "none" ? "weak_oral" : explanation) : "none",
+        evidence: "claimed_only",
+        benefit: "mixed",
+        salesJustification: "none",
+      };
+    }
+    case "document_fee": {
+      return {
+        feeType: "admin",
+        label: "書類作成費",
+        mandatory: "agent",
+        explanation,
+        evidence: "claimed_only",
+        benefit: "mixed",
+        salesJustification: "none",
+      };
+    }
+    case "fire_insurance": {
+      return {
+        feeType: "insurance",
+        label: "火災保険",
+        mandatory: "owner",
+        explanation,
+        evidence: "claimed_only",
+        benefit: "tenant",
+        salesJustification: "none",
+      };
+    }
+    case "unknown": {
+      const d = fact.detail as import("./types").UnknownFeeDetail;
+      return {
+        feeType: "disinfect",
+        label: d.labelOnInvoice || "その他費用",
+        mandatory: "unknown",
+        explanation,
+        evidence: "unknown",
+        benefit: "unknown",
+        salesJustification: "none",
+      };
+    }
+    default:
+      return null;
+  }
 }
 
 export async function diagnoseInitialFees(input: InitialFeesInput): Promise<DiagnosisResult> {
@@ -129,7 +588,37 @@ export async function diagnoseInitialFees(input: InitialFeesInput): Promise<Diag
     ]),
   ].slice(0, 8);
 
-  const refund = estimateRefund(input.facts);
+  const refund = estimateRefund(input.facts, input.claimedTotalAmount);
+
+  let guidelineReferenceAmount: number | undefined;
+  let guidelineReferenceGap: number | undefined;
+  if (input.claimedTotalAmount && input.monthlyRent) {
+    const rent = input.monthlyRent;
+    const deposit = input.depositAmount ?? 0;
+    const keyMoney = input.keyMoneyAmount ?? 0;
+    // ガイドライン目安 = 敷金 + 礼金 + 初月賃料 + 仲介手数料(0.5ヶ月+税) + 火災保険目安
+    guidelineReferenceAmount = deposit + keyMoney + Math.round(rent * (1 + 0.55 + 0.08));
+    guidelineReferenceGap = input.claimedTotalAmount - guidelineReferenceAmount;
+  }
+
+  const feeEvaluations = input.facts
+    .map((fact) => mapFactToEvalInput(fact, input.explanation))
+    .filter((e): e is FeeEvalInput => e !== null)
+    .map((e) => evaluateFee(e));
+
+  const itemizedReviewBreakdown = buildItemizedReviewBreakdown(input);
+  const negotiationLines = buildNegotiationLines(input);
+  const guaranteeBreakdown = computeGuaranteeBreakdown(input);
+
+  let estimatedOutcome: DiagnosisResult["estimatedOutcome"];
+  if (itemizedReviewBreakdown && itemizedReviewBreakdown.length > 0) {
+    const totalReducible = itemizedReviewBreakdown.reduce((sum, item) => sum + item.reviewMax, 0);
+    const reducibleMax = totalReducible;
+    const reducibleMin = Math.min(reducibleMax, Math.round(reducibleMax * 0.4));
+    const rent = input.monthlyRent;
+    const freeRentMonths = rent && rent > 0 ? convertToFreeRent(totalReducible, rent) : undefined;
+    estimatedOutcome = { reducibleMin, reducibleMax, freeRentMonths };
+  }
 
   return {
     mode: "initial_fees",
@@ -142,5 +631,12 @@ export async function diagnoseInitialFees(input: InitialFeesInput): Promise<Diag
     disclaimer: DISCLAIMER,
     estimatedRefundMin: refund.min,
     estimatedRefundMax: refund.max,
+    guidelineReferenceAmount,
+    guidelineReferenceGap,
+    itemizedReviewBreakdown,
+    estimatedOutcome,
+    negotiationLines,
+    guaranteeBreakdown,
+    feeEvaluations: feeEvaluations.length > 0 ? feeEvaluations : undefined,
   };
 }

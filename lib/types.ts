@@ -17,6 +17,20 @@ export interface InitialFeesInput {
   couldRefuse: "yes" | "no" | "refused_and_pressured" | "told_no_contract" | "unknown";
   hasDocuments: "yes" | "no" | "unknown";
   facts: FactItem[];
+  claimedTotalAmount?: number;
+  monthlyRent?: number;
+  depositAmount?: number;
+  keyMoneyAmount?: number;
+  feeAmounts?: Partial<Record<"agency_fee" | "key_exchange" | "cleaning" | "guarantor" | "disinfection" | "support_24h" | "admin_fee" | "other", number>>;
+  guarantorStatus?: "has" | "none" | "unknown";
+  guaranteeBaseFee?: number;
+  guaranteeAdminFee?: number;
+  marketContext?: {
+    region: "metro" | "local";
+    season: "peak" | "off";
+    buildingAge: "new" | "young" | "old";
+    areaType?: "urban" | "local" | null;
+  };
 }
 
 export interface FactItem {
@@ -174,6 +188,32 @@ export interface RefundBreakdownItem {
   max: number;
 }
 
+// ─── 交渉ライン内訳 ─────────────────────────────────────────────────────────
+export interface NegotiationLineItem {
+  feeType: string;
+  label: string;
+  amount: number;
+  basis: string;
+}
+export interface NegotiationLineBreakdown {
+  total: number;
+  items: NegotiationLineItem[];
+}
+export interface NegotiationLines {
+  minimum: NegotiationLineBreakdown;  // 最低ライン：確実に通りやすい費目
+  realistic: NegotiationLineBreakdown; // 現実ライン：条件付きで通りやすい費目
+  aggressive: NegotiationLineBreakdown; // 強気ライン：最大値
+}
+
+// ─── 保証会社費用内訳 ───────────────────────────────────────────────────────
+export interface GuaranteeBreakdown {
+  baseFee?: number;
+  adminFee?: number;
+  baseExcess: number;        // 保証料本体の相場超過分
+  guarantorStatus?: "has" | "none" | "unknown";
+  totalPotential: number;    // = baseExcess + adminFee
+}
+
 export interface DiagnosisResult {
   mode?: DiagnosisMode;
   overallRisk: RiskLevel;
@@ -186,6 +226,31 @@ export interface DiagnosisResult {
   estimatedRefundMin: number;
   estimatedRefundMax: number;
   estimatedBreakdown?: RefundBreakdownItem[];
+  guidelineReferenceAmount?: number;
+  guidelineReferenceGap?: number;
+  feeEvaluations?: Array<{
+    feeType: string;
+    label: string;
+    outcome: string;
+    reason: string;
+    ignore_message: string | null;
+  }>;
+  estimatedOutcome?: {
+    reducibleMin: number;
+    reducibleMax: number;
+    freeRentMonths?: number;
+  };
+  itemizedReviewBreakdown?: Array<{
+    feeType: string;
+    label: string;
+    inputAmount: number;
+    reviewMin: number;
+    reviewMax: number;
+    negotiability: "high" | "medium" | "low";
+    landingOptions: string[];
+  }>;
+  negotiationLines?: NegotiationLines;
+  guaranteeBreakdown?: GuaranteeBreakdown;
 }
 
 export interface RiskFactor {
@@ -207,4 +272,7 @@ export type FeeType =
   | "key_exchange"
   | "cleaning"
   | "guarantor"
+  | "disinfection"
+  | "support_24h"
+  | "admin_fee"
   | "other";

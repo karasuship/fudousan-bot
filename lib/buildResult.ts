@@ -66,10 +66,24 @@ function buildMatches(input: IssueCheckInput, issues: Issue[]): string[] {
 
 function buildSummary(input: IssueCheckInput, issues: Issue[]): string {
   if (issues.length === 0) {
+    if (input.mode === "initial_fees") {
+      return "大きな問題は検出されませんでした。ただし、費用の名目ごとに根拠を確認しておくと安心です。念のため書面の記録を保持してください。";
+    }
     return "入力内容を照合した結果、重大な構造的問題は検出されなかった。念のため費用の記録を保持すること。";
   }
+
   const highCount = issues.filter((i) => i.severity === "high").length;
   const categories = [...new Set(issues.map((i) => i.category))].slice(0, 3).join("・");
+
+  if (input.mode === "initial_fees") {
+    if (highCount >= 2) {
+      return `この初期費用には、確認で下がる可能性のある費用が含まれています。${categories}など${issues.length}件の論点が見つかりました。そのまま払う前に、書面で根拠を確認することをお勧めします。`;
+    }
+    if (issues.length >= 2) {
+      return `業界ではよくある水準かもしれませんが、${categories}など一部に確認余地のある費用が含まれている可能性があります。${issues.length}件の確認ポイントがあります。`;
+    }
+    return `${categories}について、確認しておきたいポイントが${issues.length}件あります。書面で記録を残しておくことをお勧めします。`;
+  }
 
   if (highCount >= 2) {
     return `${issues.length}件の構造的問題を検出（うち重大${highCount}件）——${categories}の各論点で同意・説明・実態・名目のいずれかが崩れている。以下のルールと行動を確認すること。`;
