@@ -88,40 +88,6 @@ function detectIssuesForInput(input: InitialFeesInput): DetectedIssue[] {
   }));
 }
 
-function estimateRefund(facts: any[], claimedTotalAmount?: number): { min: number; max: number } {
-  let min = 0;
-  let max = 0;
-  for (const fact of facts) {
-    switch (fact.realityCategory) {
-      case "agency":
-        min += 5000;
-        max += 16500;
-        break;
-      case "key_exchange":
-        max += 13200;
-        break;
-      case "cleaning":
-        max += 30000;
-        break;
-      case "support_plan":
-        max += 20000;
-        break;
-      case "ad_fee":
-        min += 10000;
-        max += 50000;
-        break;
-      case "unknown":
-        max += 15000;
-        break;
-    }
-  }
-  max = Math.min(max, 200000);
-  if (claimedTotalAmount) {
-    max = Math.min(max, claimedTotalAmount);
-  }
-  if (min > max) min = max;
-  return { min, max };
-}
 
 const LANDING_OPTIONS: Record<string, string[]> = {
   agency_fee: [
@@ -197,18 +163,6 @@ function convertToFreeRent(amount: number, rent: number): number {
   return Math.min(6, Math.floor(amount / rent));
 }
 
-const feeTypeFactorMap: Record<string, number> = {
-  other: 0.9,
-  disinfection: 1.0, // 任意サービス：全額確認対象
-  support_24h: 1.0,  // 任意加入：全額確認対象
-  admin_fee: 0.9,    // 仲介手数料に含まれるべき業務
-  key_exchange: 0.75,
-  cleaning: 0.7,
-  agency_fee: 0.5,   // brokerage
-  guarantor: 0.7,
-  guarantee_base: 0.5, // 本体：相場超過分のみが確認対象
-  guarantee_admin: 1.0, // 委託費：全額確認対象
-};
 
 function upgradeNegotiability(n: "high" | "medium" | "low"): "high" | "medium" | "low" {
   if (n === "low") return "medium";
@@ -330,8 +284,7 @@ function buildItemizedReviewBreakdown(
     }
 
     const { min, max: baseMax } = entry.calcReview(amt);
-    const feeFactor = feeTypeFactorMap[entry.key] ?? 0.7;
-    const reviewMax = Math.min(amt, Math.round(baseMax * factor * feeFactor));
+    const reviewMax = Math.min(amt, Math.round(baseMax * factor));
     result.push({
       feeType: entry.key,
       label: entry.label,
@@ -397,22 +350,20 @@ function computeGuaranteeBreakdown(input: InitialFeesInput): GuaranteeBreakdown 
 }
 
 // ─── 交渉ラインを内訳付きで算出 ─────────────────────────────────────────────
-function buildNegotiationLines(input: InitialFeesInput): NegotiationLines | undefined {
+function buildNegotiationLines(
+  input: InitialFeesInput,
+  breakdown: DiagnosisResult["itemizedReviewBreakdown"]
+): NegotiationLines | undefined {
+  if (!breakdown || breakdown.length === 0) return undefined;
+
   const fa = input.feeAmounts;
-  if (!fa && input.guaranteeBaseFee === undefined && input.guaranteeAdminFee === undefined) return undefined;
-
-  const rent = input.monthlyRent;
-  const factor = getMarketFactor(input.marketContext);
-
-  const guaranteeAdminFee = input.guaranteeAdminFee ?? 0;
-  const baseExcess = input.guaranteeBaseFee
-    ? computeGuaranteeBaseExcess(input.guaranteeBaseFee, rent, input.guarantorStatus)
-    : 0;
 
   // ── 最低ライン：ほぼ確実に確認・調整できる費目 ───────────────────────────
   const minItems: NegotiationLineItem[] = [];
-  if (guaranteeAdminFee > 0)
-    minItems.push({ feeType: "guarantee_admin", label: "委託保証料・保証関連事務費", amount: guaranteeAdminFee, basis: "仲介手数料に含まれる性質の手続き費用" });
+
+  const guaranteeAdminItem = breakdown.find((b) => b.feeType === "guarantee_admin");
+  if (guaranteeAdminItem && guaranteeAdminItem.reviewMax > 0)
+    minItems.push({ feeType: "guarantee_admin", label: guaranteeAdminItem.label, amount: guaranteeAdminItem.reviewMax, basis: "仲介手数料に含まれる性質の手続き費用" });
   if (fa?.disinfection)
     minItems.push({ feeType: "disinfection", label: "消毒・除菌代", amount: fa.disinfection, basis: "任意サービス" });
   if (fa?.support_24h)
@@ -424,25 +375,25 @@ function buildNegotiationLines(input: InitialFeesInput): NegotiationLines | unde
 
   // ── 現実ライン：最低 + 条件付きで通りやすい費目 ─────────────────────────
   const realItems: NegotiationLineItem[] = [...minItems];
-  if (fa?.key_exchange) {
-    const amt = Math.round(fa.key_exchange * factor * feeTypeFactorMap.key_exchange);
-    if (amt > 0) realItems.push({ feeType: "key_exchange", label: "鍵交換代", amount: amt, basis: "借主負担の根拠確認が必要" });
-  }
-  if (fa?.cleaning) {
-    const amt = Math.round(fa.cleaning * factor * feeTypeFactorMap.cleaning);
-    if (amt > 0) realItems.push({ feeType: "cleaning", label: "清掃代", amount: amt, basis: "入居前清掃は貸主負担が原則" });
-  }
-  if (baseExcess > 0)
-    realItems.push({ feeType: "guarantee_base", label: "保証料（相場超過分）", amount: baseExcess, basis: `相場(${input.guarantorStatus === "has" ? "連帯保証人あり30%" : "連帯保証人なし50%"})超過分` });
+
+  const keyExchangeItem = breakdown.find((b) => b.feeType === "key_exchange");
+  if (keyExchangeItem && keyExchangeItem.reviewMax > 0)
+    realItems.push({ feeType: "key_exchange", label: keyExchangeItem.label, amount: keyExchangeItem.reviewMax, basis: "借主負担の根拠確認が必要" });
+
+  const cleaningItem = breakdown.find((b) => b.feeType === "cleaning");
+  if (cleaningItem && cleaningItem.reviewMax > 0)
+    realItems.push({ feeType: "cleaning", label: cleaningItem.label, amount: cleaningItem.reviewMax, basis: "入居前清掃は貸主負担が原則" });
+
+  const guaranteeBaseItem = breakdown.find((b) => b.feeType === "guarantee_base");
+  if (guaranteeBaseItem && guaranteeBaseItem.reviewMax > 0)
+    realItems.push({ feeType: "guarantee_base", label: "保証料（相場超過分）", amount: guaranteeBaseItem.reviewMax, basis: `相場(${input.guarantorStatus === "has" ? "連帯保証人あり30%" : "連帯保証人なし50%"})超過分` });
 
   // ── 強気ライン：現実 + 最大値を狙う場合 ────────────────────────────────
   const aggrItems: NegotiationLineItem[] = [...realItems];
-  if (fa?.agency_fee) {
-    const overPaid = rent
-      ? Math.max(0, fa.agency_fee - Math.round(rent * 0.55))
-      : Math.round(fa.agency_fee * 0.5);
-    if (overPaid > 0) aggrItems.push({ feeType: "agency_fee", label: "仲介手数料（超過分）", amount: overPaid, basis: "0.5ヶ月超の部分" });
-  }
+
+  const agencyFeeItem = breakdown.find((b) => b.feeType === "agency_fee");
+  if (agencyFeeItem && agencyFeeItem.reviewMax > 0)
+    aggrItems.push({ feeType: "agency_fee", label: "仲介手数料（超過分）", amount: agencyFeeItem.reviewMax, basis: "0.5ヶ月超の部分" });
 
   const sum = (items: NegotiationLineItem[]) => items.reduce((s, i) => s + i.amount, 0);
   return {
@@ -588,18 +539,6 @@ export async function diagnoseInitialFees(input: InitialFeesInput): Promise<Diag
     ]),
   ].slice(0, 8);
 
-  const refund = estimateRefund(input.facts, input.claimedTotalAmount);
-
-  let guidelineReferenceAmount: number | undefined;
-  let guidelineReferenceGap: number | undefined;
-  if (input.claimedTotalAmount && input.monthlyRent) {
-    const rent = input.monthlyRent;
-    const deposit = input.depositAmount ?? 0;
-    const keyMoney = input.keyMoneyAmount ?? 0;
-    // ガイドライン目安 = 敷金 + 礼金 + 初月賃料 + 仲介手数料(0.5ヶ月+税) + 火災保険目安
-    guidelineReferenceAmount = deposit + keyMoney + Math.round(rent * (1 + 0.55 + 0.08));
-    guidelineReferenceGap = input.claimedTotalAmount - guidelineReferenceAmount;
-  }
 
   const feeEvaluations = input.facts
     .map((fact) => mapFactToEvalInput(fact, input.explanation))
@@ -607,7 +546,11 @@ export async function diagnoseInitialFees(input: InitialFeesInput): Promise<Diag
     .map((e) => evaluateFee(e));
 
   const itemizedReviewBreakdown = buildItemizedReviewBreakdown(input);
-  const negotiationLines = buildNegotiationLines(input);
+  const estimatedRefundMin = 0;
+  const estimatedRefundMax = itemizedReviewBreakdown
+    ? itemizedReviewBreakdown.reduce((sum, item) => sum + item.reviewMax, 0)
+    : 0;
+  const negotiationLines = buildNegotiationLines(input, itemizedReviewBreakdown);
   const guaranteeBreakdown = computeGuaranteeBreakdown(input);
 
   let estimatedOutcome: DiagnosisResult["estimatedOutcome"];
@@ -629,10 +572,8 @@ export async function diagnoseInitialFees(input: InitialFeesInput): Promise<Diag
     nextChecks,
     draftEmail: "", // route.ts で Anthropic API 生成後に上書き
     disclaimer: DISCLAIMER,
-    estimatedRefundMin: refund.min,
-    estimatedRefundMax: refund.max,
-    guidelineReferenceAmount,
-    guidelineReferenceGap,
+    estimatedRefundMin,
+    estimatedRefundMax,
     itemizedReviewBreakdown,
     estimatedOutcome,
     negotiationLines,

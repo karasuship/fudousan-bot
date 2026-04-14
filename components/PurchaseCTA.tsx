@@ -107,7 +107,7 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
           </p>
         )}
 
-        <Button label={modeCfg ? modeCfg.ctaLabel : "そのまま送れる確認メールを取得する（¥980）"} />
+        <Button label={modeCfg ? modeCfg.ctaLabel : "支払う前に確認メールを取得する（¥980）" /* ⑤ CTAボタン文言の変更 */} />
 
         <p className="text-xs text-amber-600 text-center font-medium">
           ¥980 で、今回の診断結果をもとにした確認メール全文を取得
@@ -143,7 +143,7 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
         </p>
       )}
 
-      <Button label={modeCfg ? modeCfg.ctaLabel : "そのまま送れる確認メールを取得する（¥980）"} />
+      <Button label={modeCfg ? modeCfg.ctaLabel : "支払う前に確認メールを取得する（¥980）" /* ⑤ CTAボタン文言の変更 */} />
 
       <p className="text-xs text-slate-400 text-center">
         診断結果をもとに、そのまま送れる個別の確認メールを生成します

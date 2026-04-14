@@ -226,8 +226,6 @@ export interface DiagnosisResult {
   estimatedRefundMin: number;
   estimatedRefundMax: number;
   estimatedBreakdown?: RefundBreakdownItem[];
-  guidelineReferenceAmount?: number;
-  guidelineReferenceGap?: number;
   feeEvaluations?: Array<{
     feeType: string;
     label: string;
@@ -272,6 +270,15 @@ export type FeeType =
   | "key_exchange"
   | "cleaning"
   | "guarantor"
+  | "guarantor_delegation"
+  | "fire_extinguisher"
+  | "fire_insurance"
+  | "management_fee"
+  | "common_fee"
+  | "daily_rent"
+  | "first_month_rent"
+  | "security_deposit"
+  | "repair_share"
   | "disinfection"
   | "support_24h"
   | "admin_fee"

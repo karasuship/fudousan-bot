@@ -22,6 +22,9 @@ export type Result = {
   matches: string[];
   issues: Issue[];
   actions: string[];
+  refundCandidateFees: string[];
+  totalOnlyFees: string[];
+  needsClassificationFees: string[];
 };
 
 export function detectIssues(input: IssueCheckInput): Issue[] {
@@ -156,5 +159,14 @@ export function buildResult(params: {
   const rules = buildRules(issues);
   const matches = buildMatches(input, issues);
   const actions = buildActions(issues);
-  return { summary, rules, matches, issues, actions };
+  return {
+    summary,
+    rules,
+    matches,
+    issues,
+    actions,
+    refundCandidateFees: meta?.refundCandidateFees ?? [],
+    totalOnlyFees: meta?.totalOnlyFees ?? [],
+    needsClassificationFees: meta?.needsClassificationFees ?? [],
+  };
 }

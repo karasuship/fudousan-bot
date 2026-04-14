@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { diagnosisSchema } from "@/lib/schema";
-import { diagnoseInitialFees } from "@/lib/diagnose";
 import { diagnoseContractReview, diagnoseMaintenance, diagnoseMoveOut, diagnoseDepositRefund } from "@/lib/diagnoseModes";
+import { normalize } from "@/lib/initialFees/normalize";
+import { evaluateInitialFees } from "@/lib/initialFees/evaluate";
 import type { InitialFeesInput, DiagnosisResult } from "@/lib/types";
 
 const anthropic = new Anthropic({
@@ -177,8 +178,11 @@ export async function POST(request: Request) {
 
     case "initial_fees":
     case "renewal": {
-      const result = await diagnoseInitialFees(data as InitialFeesInput);
-      return Response.json({ ...result, draftEmail: "" });
+      const input = data as InitialFeesInput;
+      const canonical = normalize(input);
+      const result = evaluateInitialFees(canonical);
+      const draftEmail = await generateEmailWithAI(result, input);
+      return Response.json({ ...result, draftEmail });
     }
   }
 }

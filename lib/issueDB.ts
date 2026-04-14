@@ -296,6 +296,67 @@ export const ISSUE_DB: Issue[] = [
     severity: "high",
   },
 
+  {
+    id: "guarantor_delegation_fee",
+    category: "初期費用",
+    title: "保証会社委託費用の役務内容確認",
+    rule: "保証会社費用（保証料）と委託保証料（仲介業者への手数料）は別の費目。同一名目での二重請求や、役務内容の不明確な委託費用は、費用の名目と実態の不一致となる。",
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "unknown" && f.perceivedLabel?.includes("委託")) ?? false,
+    explanation:
+      "保証会社費用とは別名目で委託費用が請求されている。役務内容・他費目との重複の有無の説明が確認されていない状態。",
+    checkPoints: [
+      "「保証会社費用」と「委託費用」の役務内容がそれぞれ説明されているか",
+      "保証会社に直接申込んだ場合の費用と比較したか",
+      "二重請求にあたる可能性がないか確認したか",
+    ],
+    nextAction: [
+      "委託費用の役務内容と根拠を書面で確認する",
+      "保証会社への直接申込み費用と比較する",
+    ],
+    severity: "medium",
+  },
+  {
+    id: "fire_extinguisher_optional",
+    category: "初期費用",
+    title: "消火剤・防災グッズの任意性確認",
+    rule: "入居者への消火剤・防災グッズの費用請求は任意費用に近い場合がある。任意費用を必須として請求するには、根拠条項と説明・同意の記録が必要。",
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "unknown" && f.perceivedLabel?.includes("消火")) ?? false,
+    explanation:
+      "消火剤・防災グッズ費用が請求されている。法的義務に基づく費用かどうか、説明・同意の有無が確認されていない状態。",
+    checkPoints: [
+      "設置が法令上義務付けられている設備か確認したか",
+      "費用を借主が負担する根拠が契約書に明記されているか",
+      "任意費用として断れると説明されたか",
+    ],
+    nextAction: [
+      "法的義務の有無・費用負担根拠を書面で確認する",
+      "任意費用の場合は断れるか書面で確認する",
+    ],
+    severity: "low",
+  },
+  {
+    id: "repair_share_classification",
+    category: "初期費用",
+    title: "修理分担金の性質・返還可能性確認",
+    rule: "「修理分担金」は敷金・礼金・一時金のいずれかに近い性質を持つが、名称から返還対象性を判断しにくい。契約書への記載・説明・同意が必要。",
+    condition: (input) =>
+      input.facts?.some((f: any) => f.realityCategory === "unknown" && f.perceivedLabel?.includes("修理分担")) ?? false,
+    explanation:
+      "修理分担金が請求されている。敷金・礼金・一時金のいずれに該当するか、返還条件の説明が確認されていない状態。",
+    checkPoints: [
+      "修理分担金の定義・返還条件が契約書に明記されているか",
+      "敷金と性質が重複していないか確認したか",
+      "名称と実態（返還可能性）が一致しているか",
+    ],
+    nextAction: [
+      "契約書で修理分担金の位置づけ・返還条件を確認する",
+      "敷金との関係性を書面で管理会社に確認する",
+    ],
+    severity: "medium",
+  },
+
   // ════════════════════════════════════════════════════════════════════════════
   // 契約
   // ════════════════════════════════════════════════════════════════════════════

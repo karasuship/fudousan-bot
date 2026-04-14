@@ -7,7 +7,6 @@ import { MODE_CONFIG } from "@/lib/modes";
 import { track } from "@/lib/analytics";
 import EmailLockSection from "./EmailLockSection";
 import PurchaseCTA from "./PurchaseCTA";
-import { buildResult } from "@/lib/buildResult";
 
 interface Props {
   result: DiagnosisResult;
@@ -371,7 +370,7 @@ const RISK_CONFIG: Record<RiskLevel, {
     showTopCTA: true,
   },
   caution: {
-    badge: "要注意",
+    badge: "要注意（支払い前に確認推奨）", // ② ステータス文言の具体化
     badgeBg: "bg-red-400/20 text-red-300",
     ringColor: "#f87171",
     headline: "複数の重要な確認事項が見つかりました",
@@ -407,6 +406,229 @@ function fmt(n: number) {
   return `¥${n.toLocaleString("ja-JP")}`;
 }
 
+// ─── 最大論点・注意費目 優先順位マップ ───────────────────────────────────────
+// security_deposit を末尾に置き、初期費用診断のデフォルト主役にしない
+const TOP_FEE_PRIORITY: string[] = [
+  "agency_fee", "disinfection", "support_24h", "fire_insurance", "cleaning",
+  "key_exchange", "admin_fee", "guarantor_delegation", "fire_extinguisher",
+  "guarantor", "repair_share", "other", "security_deposit",
+];
+const ATTENTION_FEE_PRIORITY: string[] = [
+  "repair_share", "fire_insurance", "disinfection", "support_24h", "fire_extinguisher",
+  "guarantor_delegation", "admin_fee", "cleaning", "key_exchange",
+  "guarantor", "agency_fee", "other", "security_deposit",
+];
+
+// 最大論点：優先度・金額インパクト重視の理由文
+const TOP_FEE_REASON_MAP: Record<string, string> = {
+  agency_fee:           "上限規制との関係で、最も金額インパクトが大きい確認対象です",
+  cleaning:             "実施確認と金額根拠によって、支払い妥当性が変わりやすい費目です",
+  disinfection:         "任意サービスにもかかわらず必須扱いされやすく、断れる可能性があります",
+  support_24h:          "任意加入プランのため、同意の有無が論点になりやすい費目です",
+  key_exchange:         "実施確認の有無で支払い妥当性が変わりやすい費目です",
+  admin_fee:            "名目と根拠の対応確認が特に求められる費目です",
+  guarantor_delegation: "費用内容の説明義務との関係で確認すべき費目です",
+  fire_insurance:       "保険会社・プランの選択権は借主にあり、指定業者への強制加入は確認すべき論点です",
+  fire_extinguisher:    "任意性が高く、根拠確認で見直しになりやすい費目です",
+  guarantor:            "加入条件・内訳・更新時費用の確認余地がある費目です",
+  repair_share:         "返還可能性が名称だけでは判断しにくく、契約書確認が必須です",
+  security_deposit:     "返還条件の確認が特に重要な費目です",
+  other:                "名目・根拠の確認によって見直しになる可能性がある費目です",
+};
+
+// 最も注意が必要な費目：確認理由・リスク説明重視の理由文
+const ATTENTION_FEE_REASON_MAP: Record<string, string> = {
+  agency_fee:           "書面による同意内容と請求額の整合を確認することが重要です",
+  cleaning:             "クリーニング証明・金額根拠・任意か必須かの確認が必要です",
+  disinfection:         "任意サービスである可能性が高く、断れる根拠が存在します",
+  support_24h:          "任意加入サービスのため、同意手続きの確認が求められます",
+  key_exchange:         "実施状況・費用負担の根拠を書面で確認してください",
+  admin_fee:            "役務内容・算出根拠が書面で示されているか確認が必要です",
+  guarantor_delegation: "費用の内訳と契約書の記載内容を照合してください",
+  fire_insurance:       "保険会社・プランを自分で選べたか、指定された場合はその根拠を確認してください",
+  fire_extinguisher:    "任意性の確認と、断れなかった経緯の記録が有効です",
+  guarantor:            "費用内訳・更新条件の確認が特に重要な費目です",
+  repair_share:         "名称だけでは返還対象性が判断しにくく、契約書確認が必須です",
+  security_deposit:     "返還条件・差し引き根拠を契約書で必ず確認してください",
+  other:                "名目と役務内容の対応を書面で確認しておくことが重要です",
+};
+
+// 状況別：緊急性テキスト
+const URGENCY_TEXT: Record<string, string> = {
+  pre_estimate: "支払い義務はまだありません。今が最も交渉しやすいタイミングです。",
+  pre_sign:     "署名前が最後の確認機会です。サインする前に書面で根拠を確認してください。",
+  pre_payment:  "支払後は交渉が難しくなるため、支払い前に書面で確認するのが安全です。",
+  paid:         "支払済みでも、根拠のない費用は返還請求できる場合があります。",
+};
+
+function InitialFeesActionSummary({
+  refundCandidateFees,
+  totalOnlyFees,
+  needsClassificationFees,
+  itemizedReviewBreakdown,
+  maxRefund,
+  situation,
+}: {
+  refundCandidateFees: string[];
+  totalOnlyFees: string[];
+  needsClassificationFees: string[];
+  itemizedReviewBreakdown?: Array<{ feeType: string; inputAmount: number }>;
+  maxRefund: number;
+  situation?: string;
+}) {
+  // fee → inputAmount マップ
+  const amountMap: Record<string, number> = {};
+  for (const item of itemizedReviewBreakdown ?? []) {
+    if (item.inputAmount > 0) amountMap[item.feeType] = item.inputAmount;
+  }
+  const sumBucket = (fees: string[]) => fees.reduce((acc, f) => acc + (amountMap[f] ?? 0), 0);
+  const grandTotal = sumBucket(refundCandidateFees) + sumBucket(totalOnlyFees) + sumBucket(needsClassificationFees);
+  const reviewTotal = sumBucket(refundCandidateFees) + sumBucket(needsClassificationFees);
+  const normalTotal = sumBucket(totalOnlyFees);
+
+  // 割合（maxRefund / grandTotal）
+  const pct = (grandTotal > 0 && maxRefund > 0)
+    ? Math.round((maxRefund / grandTotal) * 100)
+    : null;
+
+  // 最大論点: refundCandidate + needsClassification からプライオリティ順に選定
+  // security_deposit はリスト末尾なので、他に候補があれば優先されない
+  const allReviewFees = [...refundCandidateFees, ...needsClassificationFees];
+  const topFee = TOP_FEE_PRIORITY.find((k) => allReviewFees.includes(k)) ?? allReviewFees[0] ?? null;
+
+  // 最も注意が必要な費目: needsClassification を優先、プライオリティ順
+  const attentionFee =
+    ATTENTION_FEE_PRIORITY.find((k) => needsClassificationFees.includes(k)) ??
+    needsClassificationFees[0] ??
+    ATTENTION_FEE_PRIORITY.find((k) => allReviewFees.includes(k) && k !== topFee) ??
+    topFee;
+
+  // 擬似敷金検知
+  const PSEUDO_DEPOSIT_KEYS = ["repair_share"];
+  const PSEUDO_DEPOSIT_KEYWORDS = ["修理分担金", "負担金", "補修費", "補修", "修繕"];
+  const allSelectedFees = [...refundCandidateFees, ...totalOnlyFees, ...needsClassificationFees];
+  const pseudoDepositFees = allSelectedFees.filter((f) =>
+    PSEUDO_DEPOSIT_KEYS.includes(f) ||
+    PSEUDO_DEPOSIT_KEYWORDS.some((kw) => (FEE_LABEL_MAP[f] ?? f).includes(kw))
+  );
+
+  const urgencyText = URGENCY_TEXT[situation ?? ""] ?? "支払い前に書面で根拠を確認することをお勧めします。";
+  const hasReviewFees = refundCandidateFees.length > 0 || needsClassificationFees.length > 0;
+
+  if (!hasReviewFees && pseudoDepositFees.length === 0) return null;
+
+  return (
+    <div className="space-y-3">
+
+      {/* 損失・割合・緊急性 サマリー */}
+      {maxRefund > 0 && (
+        <div className="rounded-2xl bg-amber-50 border border-amber-200 px-5 py-4 space-y-1.5">
+          <p className="text-xs font-semibold text-amber-600 tracking-wider">見直し余地の概算</p>
+          <p className="text-base font-bold text-amber-900 leading-snug">
+            このまま支払うと最大&nbsp;
+            <span className="text-lg tabular-nums">{fmt(maxRefund)}</span>&nbsp;損する可能性があります
+          </p>
+          {pct !== null && grandTotal > 0 && (
+            <p className="text-sm text-amber-700 tabular-nums">
+              初期費用全体の約{pct}%に見直し余地があります（{fmt(maxRefund)}&nbsp;/&nbsp;{fmt(grandTotal)}）
+            </p>
+          )}
+          <p className="text-xs text-amber-600 leading-relaxed">{urgencyText}</p>
+        </div>
+      )}
+
+      {/* 差額表示：入力合計 / 確認・候補 / 通常費用 */}
+      {grandTotal > 0 && hasReviewFees && (
+        <div className="rounded-xl bg-slate-50 border border-slate-100 px-4 py-3 grid grid-cols-3 gap-2 text-center">
+          <div>
+            <p className="text-xs text-slate-400">入力合計</p>
+            <p className="text-sm font-bold text-slate-700 tabular-nums">{fmt(grandTotal)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">確認・候補</p>
+            <p className="text-sm font-bold text-amber-600 tabular-nums">{fmt(reviewTotal)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-400">通常費用</p>
+            <p className="text-sm font-bold text-slate-500 tabular-nums">{fmt(normalTotal)}</p>
+          </div>
+        </div>
+      )}
+
+      {/* 今回の最大論点 */}
+      {topFee && (
+        <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3">
+          <p className="text-xs font-semibold text-slate-500 mb-1">今回の最大論点</p>
+          <p className="text-sm font-bold text-slate-800">{FEE_LABEL_MAP[topFee] ?? topFee}</p>
+          <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+            {TOP_FEE_REASON_MAP[topFee] ?? "最優先で確認すべき費目です"}
+          </p>
+        </div>
+      )}
+
+      {/* 最も注意が必要な費目 */}
+      {attentionFee && (
+        <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 space-y-1.5">
+          <p className="text-xs font-semibold text-red-700">最も注意が必要な費目</p>
+          <p className="text-sm font-bold text-red-800">{FEE_LABEL_MAP[attentionFee] ?? attentionFee}</p>
+          <p className="text-xs text-red-600 leading-relaxed">
+            {ATTENTION_FEE_REASON_MAP[attentionFee] ?? "名称だけでは返還対象性が判断しにくい費目です。契約書での位置づけを確認してください。"}
+          </p>
+          {/* 他の needsClassification 費目をサブ表示 */}
+          {needsClassificationFees.filter((f) => f !== attentionFee).length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-0.5">
+              {needsClassificationFees.filter((f) => f !== attentionFee).map((f) => (
+                <span key={f} className="text-xs bg-white border border-red-200 text-red-600 px-2 py-0.5 rounded-full">
+                  {FEE_LABEL_MAP[f] ?? f}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 擬似敷金警告 */}
+      {pseudoDepositFees.length > 0 && (
+        <div className="rounded-xl bg-orange-50 border border-orange-200 px-4 py-3 space-y-1">
+          <p className="text-xs font-semibold text-orange-700">⚠ 擬似敷金の可能性</p>
+          <div className="flex flex-wrap gap-1.5">
+            {pseudoDepositFees.map((f) => (
+              <span key={f} className="text-xs bg-white border border-orange-200 text-orange-700 px-2 py-0.5 rounded-full">
+                {FEE_LABEL_MAP[f] ?? f}
+              </span>
+            ))}
+          </div>
+          <p className="text-xs text-orange-600 leading-relaxed">
+            「修理分担金」「負担金」など敷金に類似した名目の費用は、契約終了時に返還されない可能性があります。契約書での位置づけを必ず確認してください。
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── 費目キー → 日本語ラベル マッピング ─────────────────────────────────────
+const FEE_LABEL_MAP: Record<string, string> = {
+  agency_fee:           "仲介手数料",
+  key_exchange:         "鍵交換代",
+  cleaning:             "清掃代",
+  guarantor:            "保証会社費用",
+  guarantor_delegation: "保証会社委託費用",
+  disinfection:         "消毒・除菌代",
+  fire_extinguisher:    "消火剤・防災グッズ",
+  fire_insurance:       "火災保険料",
+  support_24h:          "24時間サポートプラン",
+  admin_fee:            "事務手数料・書類作成費",
+  management_fee:       "管理費",
+  common_fee:           "共益費",
+  daily_rent:           "日割り家賃",
+  first_month_rent:     "初月賃料",
+  security_deposit:     "敷金",
+  repair_share:         "修理分担金",
+  disinfection_spray:   "消毒スプレー",
+  other:                "その他費用",
+};
+
 // ─── 費目キー → 理由文 マッピング（完全網羅） ───────────────────────────────
 const FEE_REASON_MAP: Record<string, string> = {
   agency_fee:   "仲介手数料の見直し余地があります",
@@ -415,8 +637,9 @@ const FEE_REASON_MAP: Record<string, string> = {
   key_exchange: "鍵交換費用は必須とは限りません",
   disinfection: "消毒・除菌費用は任意のサービスです",
   support_24h:  "24時間サポートプランは任意加入です",
-  admin_fee:    "事務手数料・書類作成費に確認余地があります",
-  other:        "任意費用（消毒・24時間サポート・事務手数料等）が含まれています",
+  admin_fee:       "事務手数料・書類作成費に確認余地があります",
+  fire_insurance:  "火災保険は保険会社を自由に選べます。指定業者への強制加入は確認が必要です",
+  other:           "任意費用（消毒・24時間サポート・事務手数料等）が含まれています",
 };
 
 // ─── メイン ───────────────────────────────────────────────────────
@@ -480,20 +703,63 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const structuredResult = buildResult({ result, meta: initialFeesMeta });
+  // バケット分類: initialFeesMeta から直接読む（業務判断はサーバー側で完結済み）
+  const refundCandidateFees: string[]     = initialFeesMeta?.refundCandidateFees ?? [];
+  const totalOnlyFees: string[]           = initialFeesMeta?.totalOnlyFees ?? [];
+  const needsClassificationFees: string[] = initialFeesMeta?.needsClassificationFees ?? [];
+
+  // 適用ルール: result.issues の rule フィールドから重複除去（表示用変換のみ）
+  const displayRules: string[] = (() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const issue of result.issues) {
+      if (!seen.has(issue.rule)) { seen.add(issue.rule); out.push(issue.rule); }
+      if (out.length >= 5) break;
+    }
+    const fallbacks = [
+      "宅建業法46条：仲介手数料の上限は賃料1ヶ月分＋消費税。",
+      "民法606条：賃貸人は貸室を使用収益に適した状態に維持する義務を負う。",
+      "国土交通省原状回復ガイドライン：通常損耗・経年劣化は賃貸人負担が原則。",
+    ];
+    for (const f of fallbacks) {
+      if (out.length >= 3) break;
+      if (!seen.has(f)) { seen.add(f); out.push(f); }
+    }
+    return out.slice(0, 5);
+  })();
+
+  // 照合軸サマリー: InitialFeesMeta の説明状況 + result.issues の category から生成（表示用変換のみ）
+  const displayMatches: string[] = (() => {
+    const out: string[] = [];
+    const explanation = initialFeesMeta?.explanation ?? "";
+    if (explanation === "no") {
+      out.push("説明の有無：費用の説明を受けていない → 説明義務との構造的不一致");
+    } else if (explanation === "insufficient") {
+      out.push("説明の有無：説明が不十分 → 書面による根拠確認が必要");
+    } else if (explanation === "yes") {
+      out.push("説明の有無：説明あり → 説明軸は照合済み");
+    }
+    const categories = [...new Set(result.issues.map((i) => i.category))];
+    for (const cat of categories.slice(0, 3)) {
+      const catCount = result.issues.filter((i) => i.category === cat).length;
+      out.push(`${cat}：${catCount}件の論点を検出`);
+    }
+    return out.slice(0, 6);
+  })();
 
   // ─── initial_fees: 強い結論ブロック用データ ────────────────────
   const isInitialFees = result.mode === "initial_fees";
-  const conclusionGap = result.guidelineReferenceGap;
   // マッピング方式: 選択費目 → 理由文（1対1完全対応・抜け漏れなし）
+  // 修正①: 最大3件に制限
   const conclusionReasons: string[] = isInitialFees && initialFeesMeta?.fees
     ? initialFeesMeta.fees
         .map((fee) => FEE_REASON_MAP[fee])
         .filter((r): r is string => Boolean(r))
+        .slice(0, 3)
     : [];
-  // ─── 主役金額（negotiationLines.realistic.total を第1優先、なければ guidelineReferenceGap）
+  // ─── 主役金額（negotiationLines.realistic.total を第1優先）
   const primaryAmount: number | undefined = isInitialFees
-    ? (result.negotiationLines?.realistic.total ?? (conclusionGap !== undefined && conclusionGap > 0 ? conclusionGap : undefined))
+    ? result.negotiationLines?.realistic.total
     : (result.estimatedRefundMax > 0 ? result.estimatedRefundMax : undefined);
 
   const roundK = (n: number) => Math.round(n / 1000) * 1000;
@@ -505,17 +771,14 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
           LAYER 1-A: Hero Summary Card
       ══════════════════════════════════════════ */}
       <div className="rounded-2xl bg-slate-900 p-6 text-white space-y-4">
-        {/* Top row: score circle + amount */}
+        {/* Top row: amount */}
         <div className="flex items-start gap-4">
-          <div className="shrink-0 flex flex-col items-center gap-1">
-            <ScoreCircle score={result.score} ringColor={cfg.ringColor} />
-            <span className="text-xs text-slate-500">確認スコア</span>
-          </div>
           <div className="flex-1 min-w-0">
             {primaryAmount !== undefined && primaryAmount > 0 && (
               <>
                 <p className="text-3xl font-extrabold tabular-nums tracking-tight text-white leading-none mb-1">
-                  約{fmt(primaryAmount)}
+                  {/* ① 金額ラベルの明確化 */}
+                  見直し余地のある金額：約{fmt(primaryAmount)}
                 </p>
               </>
             )}
@@ -523,15 +786,8 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
               <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-full ${cfg.badgeBg}`}>
                 {cfg.badge}
               </span>
-              {primaryAmount !== undefined && primaryAmount > 0 && (
-                <span className="text-xs text-slate-400">確認・交渉の余地あり</span>
-              )}
-              {modeCfg && (
-                <span className="inline-block text-xs font-medium px-3 py-1 rounded-full bg-white/10 text-slate-300">
-                  {modeCfg.icon} {modeCfg.label}
-                </span>
-              )}
             </div>
+            <p className="text-sm font-semibold text-white mt-2 leading-snug">{headline}</p>
           </div>
         </div>
 
@@ -565,225 +821,59 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
           );
         })()}
 
-        {/* CTA #1 */}
-        {cfg.showTopCTA && (
-          <div className="pt-2 space-y-2">
-            <PurchaseCTA placement="verdict" maxRefund={primaryAmount} mode={result.mode} />
-          </div>
-        )}
       </div>
 
       {/* ══════════════════════════════════════════
-          LAYER 1-B: Action Steps Card
-      ══════════════════════════════════════════ */}
-      {actionSteps.length > 0 && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">次の行動</p>
-          <div className="space-y-3">
-            {actionSteps.map((step, i) => (
-              <div key={i} className="flex gap-3 items-start">
-                <div className="shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">
-                  {"num" in step ? step.num : String(i + 1)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  {"title" in step ? (
-                    <>
-                      <p className="text-sm font-semibold text-slate-700 leading-snug">{step.title}</p>
-                      <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{step.desc}</p>
-                    </>
-                  ) : (
-                    <p className="text-sm text-slate-700 leading-relaxed pt-0.5">{step as unknown as string}</p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════
-          LAYER 1-C: Compact Verdict Strip
-      ══════════════════════════════════════════ */}
-      <div className="rounded-xl bg-slate-900 px-4 py-3 flex flex-wrap items-center gap-3">
-        <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-full ${cfg.badgeBg}`}>
-          {cfg.badge}
-        </span>
-        <span className="text-sm font-semibold text-white flex-1 min-w-0 leading-snug">{headline}</span>
-        <span className="text-xs text-slate-400 tabular-nums shrink-0">{result.score} / 100</span>
-        {result.mode === "initial_fees" && (
-          <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${
-            result.overallRisk === "caution"
-              ? "bg-red-400/20 text-red-300"
-              : result.overallRisk === "review"
-              ? "bg-amber-400/20 text-amber-300"
-              : "bg-green-400/20 text-green-300"
-          }`}>
-            優先度：{result.overallRisk === "caution" ? "高" : result.overallRisk === "review" ? "中" : "低"}
-          </span>
-        )}
-      </div>
-
-      {/* ══════════════════════════════════════════
-          LAYER 2-D: "Why this result" summary card
-          (merges NEW-1 summary + NEW-2 rules + NEW-3 matches + NEW-4 issues)
-      ══════════════════════════════════════════ */}
-      <details className="rounded-2xl border border-blue-100 bg-blue-50 overflow-hidden" open>
-        <summary className="flex items-center justify-between px-5 py-4 cursor-pointer select-none hover:bg-blue-100/60 transition-colors list-none">
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider mb-1">この診断結果の根拠</p>
-            <p className="text-sm text-blue-900 leading-snug font-medium line-clamp-2">{structuredResult.summary}</p>
-          </div>
-          <svg className="w-4 h-4 text-blue-400 shrink-0 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-          </svg>
-        </summary>
-        <div className="px-5 pb-5 border-t border-blue-100 bg-white">
-          {/* Summary full */}
-          <div className="pt-4 pb-3 border-b border-slate-100">
-            <p className="text-xs font-semibold text-blue-700 mb-1">結論</p>
-            <p className="text-sm text-slate-700 leading-relaxed">{structuredResult.summary}</p>
-          </div>
-
-          {/* Rules count + list */}
-          {structuredResult.rules.length > 0 && (
-            <div className="pt-3 pb-3 border-b border-slate-100">
-              <p className="text-xs font-semibold text-slate-500 mb-2">
-                適用ルール{" "}
-                <span className="inline-block bg-slate-100 text-slate-600 rounded-full px-2 py-0.5 text-xs font-semibold ml-1">
-                  {structuredResult.rules.length}件
-                </span>
-              </p>
-              <ul className="space-y-2">
-                {structuredResult.rules.map((rule, i) => (
-                  <li key={i} className="flex gap-2 items-start text-xs text-slate-700">
-                    <span className="shrink-0 text-blue-500 font-bold mt-0.5">§{i + 1}</span>
-                    <span className="leading-relaxed">{rule}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Matches one-liner per axis */}
-          {structuredResult.matches.length > 0 && (
-            <div className="pt-3 pb-3 border-b border-slate-100">
-              <p className="text-xs font-semibold text-slate-500 mb-2">
-                照合結果（{structuredResult.matches.length}軸）
-              </p>
-              <ul className="space-y-1.5">
-                {structuredResult.matches.map((match, i) => {
-                  const [axis, result_] = match.split(" → ");
-                  return (
-                    <li key={i} className="text-xs text-slate-600 leading-relaxed">
-                      <span className="font-semibold text-slate-500">{axis}</span>
-                      {result_ && <span className="text-slate-500"> → {result_}</span>}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-
-          {/* Issues: count badge + titles */}
-          {structuredResult.issues.length > 0 && (
-            <div className="pt-3">
-              <p className="text-xs font-semibold text-slate-500 mb-2">
-                問題点{" "}
-                <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ml-1 ${cfg.issueBg} ${cfg.issueIconColor}`}>
-                  {structuredResult.issues.length}件
-                </span>
-              </p>
-              <ul className="space-y-3">
-                {structuredResult.issues.map((issue) => (
-                  <li
-                    key={issue.id}
-                    className={`rounded-xl border p-4 ${cfg.issueBg} ${cfg.issueBorder}`}
-                  >
-                    <div className="flex items-start gap-3 mb-2">
-                      <div className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${cfg.issueIconBg}`}>
-                        <svg className={`w-3.5 h-3.5 ${cfg.issueIconColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5}
-                            d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 mb-1">
-                          <span className="text-xs font-semibold text-slate-500 bg-white border border-slate-200 rounded px-1.5 py-0.5">
-                            {issue.category}
-                          </span>
-                          <p className="text-sm font-semibold text-slate-800 leading-snug">{issue.title}</p>
-                        </div>
-                        <p className="text-xs text-slate-500 leading-relaxed mb-2">{issue.explanation}</p>
-                        <details className="text-xs">
-                          <summary className="text-slate-400 cursor-pointer hover:text-slate-600 list-none flex items-center gap-1 select-none">
-                            <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                            </svg>
-                            確認ポイントを見る
-                          </summary>
-                          <ul className="mt-2 space-y-1 pl-1">
-                            {issue.checkPoints.map((cp, ci) => (
-                              <li key={ci} className="flex items-start gap-1.5 text-slate-600">
-                                <span className="text-slate-300 shrink-0 font-bold">{ci + 1}.</span>
-                                <span>{cp}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </details>
-                      </div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      </details>
-
-      {/* ══════════════════════════════════════════
-          LAYER 2-E: "Your case" card (あなたのケース)
+          LAYER 2-E: "Your case" card (あなたのケース) — 修正④
       ══════════════════════════════════════════ */}
       {situationInfo && (
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-            あなたのケース
+            {/* ③ 「あなたのケース」の強化 */}
+            あなたの場合（このまま支払うと損する可能性あり）
           </p>
-          <div className="flex items-start gap-3 flex-wrap mb-3">
+          {/* badge + 2 short sentences */}
+          <div className="flex flex-wrap items-start gap-2 mb-3">
             <span className={`inline-block text-xs font-semibold px-3 py-1 rounded-full shrink-0 ${situationInfo.statusColor}`}>
               {situationInfo.status}
             </span>
-            <p className="text-sm text-slate-700 leading-relaxed">{situationInfo.desc}</p>
+            {(() => {
+              const prefix = getSituationPrefix(initialFeesMeta?.situation);
+              return prefix ? (
+                <p className="text-xs font-semibold text-blue-700 leading-relaxed flex-1 min-w-0">{prefix}</p>
+              ) : null;
+            })()}
           </div>
-
-          {(() => {
-            const prefix = getSituationPrefix(initialFeesMeta?.situation);
-            return prefix ? (
-              <div className="mb-3 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
-                <p className="text-xs font-semibold text-blue-700 leading-relaxed">{prefix}</p>
-              </div>
-            ) : null;
-          })()}
-
-          {personalizedPoints.length > 0 && (
-            <div className="border-t border-slate-100 pt-3 space-y-2.5">
-              <p className="text-xs font-semibold text-slate-500">今回の入力をふまえた確認ポイント</p>
-              <ul className="space-y-2">
-                {personalizedPoints.map((pt, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-slate-700">
-                    <span className="text-amber-500 shrink-0 font-bold text-xs mt-0.5">▸</span>
-                    <span>{pt}</span>
-                  </li>
-                ))}
-              </ul>
-              <div className="bg-slate-50 rounded-xl px-3 py-2.5">
-                <p className="text-xs text-slate-600 leading-relaxed">{situationConclusion}</p>
-              </div>
-            </div>
+          {situationConclusion && (
+            <p className="text-xs text-slate-600 leading-relaxed mb-3">{situationConclusion}</p>
           )}
 
-          {/* この結果の判断に使われた情報（折りたたみ・closed by default） */}
-          {initialFeesMeta && (
-            <details className="mt-3 border-t border-slate-100 pt-3">
+          {/* 3 personalized points */}
+          {personalizedPoints.length > 0 && (
+            <ul className="space-y-2 mb-3">
+              {personalizedPoints.map((pt, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs text-slate-700">
+                  <span className="text-amber-500 shrink-0 font-bold mt-0.5">▸</span>
+                  <span>{pt}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* 詳細説明（折りたたみ） */}
+          <details className="border-t border-slate-100 pt-3 mt-1">
+            <summary className="text-xs text-slate-400 cursor-pointer select-none hover:text-slate-500 list-none flex items-center gap-1">
+              <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              詳細説明・次の選択肢
+            </summary>
+            <div className="mt-3 space-y-3">
+              <p className="text-xs text-slate-600 leading-relaxed">{situationInfo.desc}</p>
+
+              {/* この結果の判断に使われた情報 */}
+              {initialFeesMeta && (
+            <details className="border-t border-slate-100 pt-3">
               <summary className="text-xs text-slate-400 cursor-pointer select-none hover:text-slate-500 list-none flex items-center gap-1">
                 <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -863,26 +953,242 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
               </ul>
             </details>
           )}
+            </div>
+          </details>
         </div>
       )}
 
-      {/* ── ガイドライン目安との差額（initial_fees 以外のみ） ── */}
-      {result.guidelineReferenceGap !== undefined && !isInitialFees && (
-        <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5 shadow-sm">
-          <p className="text-xs font-semibold text-amber-600 uppercase tracking-wider mb-1">
-            ガイドライン目安との差額
-          </p>
-          <p className="text-xs text-amber-700 mb-3">確認・交渉の余地がある金額の目安</p>
-          <div className="flex flex-wrap items-end gap-x-2 gap-y-1 mb-1">
-            <span className="text-3xl sm:text-4xl font-extrabold text-amber-700 tabular-nums tracking-tight">
-              +{fmt(result.guidelineReferenceGap)}
-            </span>
-          </div>
-          <p className="text-xs text-amber-600 leading-relaxed">
-            目安額（約{fmt(result.guidelineReferenceAmount ?? 0)}）を超えている分です。この差額がそのまま返金・値引き額になるわけではありませんが、確認・交渉を始める根拠になります。
-          </p>
+      {/* ══════════════════════════════════════════
+          LAYER 2-E2: 初期費用 アクションサマリー（initial_fees のみ）
+      ══════════════════════════════════════════ */}
+      {isInitialFees && (
+        <InitialFeesActionSummary
+          refundCandidateFees={refundCandidateFees}
+          totalOnlyFees={totalOnlyFees}
+          needsClassificationFees={needsClassificationFees}
+          itemizedReviewBreakdown={result.itemizedReviewBreakdown}
+          maxRefund={result.negotiationLines?.realistic.total ?? result.estimatedRefundMax ?? 0}
+          situation={initialFeesMeta?.situation}
+        />
+      )}
+
+      {/* ══════════════════════════════════════════
+          LAYER 2-F: 費目バケット分類ブロック（initial_fees のみ）
+      ══════════════════════════════════════════ */}
+      {isInitialFees && (refundCandidateFees.length > 0 || totalOnlyFees.length > 0 || needsClassificationFees.length > 0) && (
+        <div className="space-y-3">
+          {refundCandidateFees.length > 0 && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 space-y-2">
+              <p className="text-sm font-semibold text-amber-800">返還・減額の確認候補</p>
+              <p className="text-xs text-amber-700 leading-relaxed">説明・同意・名目・実施状況によって確認余地がある費目です。</p>
+              <div className="flex flex-wrap gap-1.5">
+                {refundCandidateFees.map((fee) => (
+                  <span key={fee} className="text-xs bg-white border border-amber-200 text-amber-800 px-2.5 py-0.5 rounded-full">
+                    {FEE_LABEL_MAP[fee] ?? fee}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {totalOnlyFees.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4 space-y-2">
+              <p className="text-sm font-semibold text-slate-700">通常費用（返還対象外）</p>
+              <p className="text-xs text-slate-600 leading-relaxed">家賃・共益費・火災保険など、一般的に返還・減額の対象とならない費目です。総額の照合に使用します。</p>
+              <div className="flex flex-wrap gap-1.5">
+                {totalOnlyFees.map((fee) => (
+                  <span key={fee} className="text-xs bg-white border border-slate-200 text-slate-600 px-2.5 py-0.5 rounded-full">
+                    {FEE_LABEL_MAP[fee] ?? fee}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {needsClassificationFees.length > 0 && (
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 space-y-2">
+              <p className="text-sm font-semibold text-blue-800">性質確認が必要な費目</p>
+              <p className="text-xs text-blue-700 leading-relaxed">敷金・修理分担金など、名称だけでは返還対象性を判断しにくい費目です。契約書や説明内容の確認が必要です。</p>
+              <div className="flex flex-wrap gap-1.5">
+                {needsClassificationFees.map((fee) => (
+                  <span key={fee} className="text-xs bg-white border border-blue-200 text-blue-700 px-2.5 py-0.5 rounded-full">
+                    {FEE_LABEL_MAP[fee] ?? fee}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
+
+      {/* ══════════════════════════════════════════
+          LAYER 4-K: Paid kit benefits card — 修正③④
+      ══════════════════════════════════════════ */}
+      {confirmTemplate && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 space-y-2.5">
+          <p className="text-sm font-semibold text-amber-800">¥980 初動キット — 今回の診断内容をもとにした個別文面</p>
+          <ul className="space-y-1">
+            {[
+              "今回の診断内容を反映した個別文面",
+              "確認すべき論点の抜け漏れを防ぐ構成",
+              "返答パターン別の次の動き付き",
+            ].map((t) => (
+              <li key={t} className="flex items-start gap-1.5 text-xs text-amber-800">
+                <svg className="w-3 h-3 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+                {t}
+              </li>
+            ))}
+          </ul>
+          {/* ④ CTA直前テキストの強化 */}
+          <p className="text-xs text-amber-800 font-medium leading-relaxed">
+            このまま支払うと、後から返金を求めるのは難しくなる場合があります
+          </p>
+          <PurchaseCTA placement="refund" mode={result.mode} />
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════
+          LAYER 1-B: Action Steps Card — 修正④
+      ══════════════════════════════════════════ */}
+      {actionSteps.length > 0 && (
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">次の行動</p>
+          <div className="space-y-3">
+            {actionSteps.map((step, i) => (
+              <div key={i} className="flex gap-3 items-start">
+                <div className="shrink-0 w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">
+                  {"num" in step ? step.num : String(i + 1)}
+                </div>
+                <div className="flex-1 min-w-0">
+                  {"title" in step ? (
+                    <p className="text-sm font-semibold text-slate-700 leading-snug">{step.title}</p>
+                  ) : (
+                    <p className="text-sm text-slate-700 leading-relaxed pt-0.5">{step as unknown as string}</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════
+          LAYER 2-D: "Why this result" summary card
+          (merges NEW-1 summary + NEW-2 rules + NEW-3 matches + NEW-4 issues)
+      ══════════════════════════════════════════ */}
+      <details className="rounded-2xl border border-blue-100 bg-blue-50 overflow-hidden">
+        <summary className="flex items-center justify-between px-5 py-4 cursor-pointer select-none hover:bg-blue-100/60 transition-colors list-none">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider">この診断結果の根拠</p>
+            <p className="text-xs text-blue-500 mt-0.5">クリックで詳細を見る</p>
+          </div>
+          <svg className="w-4 h-4 text-blue-400 shrink-0 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </summary>
+        <div className="px-5 pb-5 border-t border-blue-100 bg-white">
+          {/* Summary full */}
+          <div className="pt-4 pb-3 border-b border-slate-100">
+            <p className="text-xs font-semibold text-blue-700 mb-1">結論</p>
+            <p className="text-sm text-slate-700 leading-relaxed">{result.summary}</p>
+          </div>
+
+          {/* Rules count + list */}
+          {displayRules.length > 0 && (
+            <div className="pt-3 pb-3 border-b border-slate-100">
+              <p className="text-xs font-semibold text-slate-500 mb-2">
+                適用ルール{" "}
+                <span className="inline-block bg-slate-100 text-slate-600 rounded-full px-2 py-0.5 text-xs font-semibold ml-1">
+                  {displayRules.length}件
+                </span>
+              </p>
+              <ul className="space-y-2">
+                {displayRules.map((rule, i) => (
+                  <li key={i} className="flex gap-2 items-start text-xs text-slate-700">
+                    <span className="shrink-0 text-blue-500 font-bold mt-0.5">§{i + 1}</span>
+                    <span className="leading-relaxed">{rule}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Matches one-liner per axis */}
+          {displayMatches.length > 0 && (
+            <div className="pt-3 pb-3 border-b border-slate-100">
+              <p className="text-xs font-semibold text-slate-500 mb-2">
+                照合結果（{displayMatches.length}軸）
+              </p>
+              <ul className="space-y-1.5">
+                {displayMatches.map((match, i) => {
+                  const [axis, result_] = match.split(" → ");
+                  return (
+                    <li key={i} className="text-xs text-slate-600 leading-relaxed">
+                      <span className="font-semibold text-slate-500">{axis}</span>
+                      {result_ && <span className="text-slate-500"> → {result_}</span>}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {/* Issues: count badge + titles */}
+          {result.issues.length > 0 && (
+            <div className="pt-3">
+              <p className="text-xs font-semibold text-slate-500 mb-2">
+                問題点{" "}
+                <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-semibold ml-1 ${cfg.issueBg} ${cfg.issueIconColor}`}>
+                  {result.issues.length}件
+                </span>
+              </p>
+              <ul className="space-y-3">
+                {result.issues.map((issue) => (
+                  <li
+                    key={issue.id}
+                    className={`rounded-xl border p-4 ${cfg.issueBg} ${cfg.issueBorder}`}
+                  >
+                    <div className="flex items-start gap-3 mb-2">
+                      <div className={`shrink-0 w-6 h-6 rounded-full flex items-center justify-center mt-0.5 ${cfg.issueIconBg}`}>
+                        <svg className={`w-3.5 h-3.5 ${cfg.issueIconColor}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5}
+                            d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <span className="text-xs font-semibold text-slate-500 bg-white border border-slate-200 rounded px-1.5 py-0.5">
+                            {issue.category}
+                          </span>
+                          <p className="text-sm font-semibold text-slate-800 leading-snug">{issue.title}</p>
+                        </div>
+                        <p className="text-xs text-slate-500 leading-relaxed mb-2">{issue.explanation}</p>
+                        <details className="text-xs">
+                          <summary className="text-slate-400 cursor-pointer hover:text-slate-600 list-none flex items-center gap-1 select-none">
+                            <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                            確認ポイントを見る
+                          </summary>
+                          <ul className="mt-2 space-y-1 pl-1">
+                            {issue.checkPoints.map((cp, ci) => (
+                              <li key={ci} className="flex items-start gap-1.5 text-slate-600">
+                                <span className="text-slate-300 shrink-0 font-bold">{ci + 1}.</span>
+                                <span>{cp}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </details>
+
 
       {/* ══════════════════════════════════════════
           LAYER 3-F: Fee detail accordion
@@ -1163,7 +1469,7 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
             <p className="text-xs text-slate-500 leading-relaxed">
               オーナー（大家）負担が基本と考えられる費用は、一部負担になってもそれで終わりではありません。残りは家賃・礼金・フリーレントなど他の条件で調整できる可能性があります。
             </p>
-            {result.feeEvaluations.map((ev) => {
+            {result.feeEvaluations.map((ev, evIdx) => {
               const outcomeConfig: Record<string, { label: string; color: string }> = {
                 remove:     { label: "削除を求める",       color: "bg-red-100 text-red-700" },
                 half:       { label: "一部負担＋残りは調整", color: "bg-amber-100 text-amber-700" },
@@ -1174,7 +1480,7 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
               };
               const evCfg = outcomeConfig[ev.outcome] ?? { label: ev.outcome, color: "bg-slate-100 text-slate-500" };
               return (
-                <div key={`${ev.feeType}-${ev.label}`} className="border border-slate-100 rounded-xl p-4 space-y-2">
+                <div key={`${ev.feeType}-${ev.label}-${evIdx}`} className="border border-slate-100 rounded-xl p-4 space-y-2">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-semibold text-slate-700">{ev.label}</p>
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${evCfg.color}`}>
@@ -1231,123 +1537,90 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
       )}
 
       {/* ══════════════════════════════════════════
-          LAYER 4-J: Template section
+          LAYER 4-J: Template + docChecklist（折りたたみ）
       ══════════════════════════════════════════ */}
-      {confirmTemplate && (() => {
-        const lines = confirmTemplate.split("\n");
-        const nonEmpty: number[] = [];
-        for (let i = 0; i < lines.length; i++) {
-          if (lines[i].trim() !== "") nonEmpty.push(i);
-          if (nonEmpty.length === 3) break;
-        }
-        const cutLine = nonEmpty.length > 0 ? nonEmpty[nonEmpty.length - 1] + 1 : 3;
-        const previewText = lines.slice(0, cutLine).join("\n");
-        const restText = lines.slice(cutLine).join("\n");
-        return (
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div>
-                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                  確認用テンプレ
+      {(confirmTemplate || docChecklist) && (
+        <details className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+          <summary className="flex items-center justify-between px-5 py-4 cursor-pointer select-none hover:bg-slate-50 transition-colors list-none">
+            <p className="text-xs font-semibold text-slate-600">文面サンプル・確認書類を見る</p>
+            <svg className="w-4 h-4 text-slate-400 shrink-0 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </summary>
+          <div className="px-5 pb-5 border-t border-slate-100 pt-4 space-y-4">
+            {confirmTemplate && (() => {
+              const lines = confirmTemplate.split("\n");
+              const nonEmpty: number[] = [];
+              for (let i = 0; i < lines.length; i++) {
+                if (lines[i].trim() !== "") nonEmpty.push(i);
+                if (nonEmpty.length === 3) break;
+              }
+              const cutLine = nonEmpty.length > 0 ? nonEmpty[nonEmpty.length - 1] + 1 : 3;
+              const previewText = lines.slice(0, cutLine).join("\n");
+              const restText = lines.slice(cutLine).join("\n");
+              return (
+                <div>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">確認用テンプレ</p>
+                    <CopyButton text={confirmTemplate} />
+                  </div>
+                  <pre className="text-xs text-slate-600 leading-relaxed bg-slate-50 rounded-xl p-4 whitespace-pre-wrap font-sans">
+                    {previewText}
+                  </pre>
+                  {restText.trim() && (
+                    <details className="mt-2">
+                      <summary className="text-xs text-slate-400 cursor-pointer select-none hover:text-slate-600 list-none flex items-center gap-1 px-1 py-1">
+                        <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                        全文を見る
+                      </summary>
+                      <pre className="text-xs text-slate-600 leading-relaxed bg-slate-50 rounded-xl p-4 whitespace-pre-wrap font-sans mt-2">
+                        {restText}
+                      </pre>
+                    </details>
+                  )}
+                  <p className="text-xs text-slate-400 mt-3 leading-relaxed">
+                    ※ このテンプレは事実確認を目的としたものです。送付の判断・文面の修正はご自身でご確認ください。
+                  </p>
+                </div>
+              );
+            })()}
+            {docChecklist && (
+              <div className="border-t border-slate-100 pt-4">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+                  確認前に整理しておくとよいもの
                 </p>
-                <p className="text-xs text-slate-400 mt-0.5">汎用テンプレ — 診断内容によらず同じ文面</p>
+                <ul className="space-y-2">
+                  {docChecklist.map((item) => (
+                    <li key={item} className="flex items-center gap-2.5 text-sm text-slate-600">
+                      <svg className="w-4 h-4 shrink-0 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                      </svg>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
               </div>
-              <CopyButton text={confirmTemplate} />
-            </div>
-            <pre className="text-xs text-slate-600 leading-relaxed bg-slate-50 rounded-xl p-4 whitespace-pre-wrap font-sans">
-              {previewText}
-            </pre>
-            {restText.trim() && (
-              <details className="mt-2">
-                <summary className="text-xs text-slate-400 cursor-pointer select-none hover:text-slate-600 list-none flex items-center gap-1 px-1 py-1">
-                  <svg className="w-3 h-3 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                  全文を見る
-                </summary>
-                <pre className="text-xs text-slate-600 leading-relaxed bg-slate-50 rounded-xl p-4 whitespace-pre-wrap font-sans mt-2">
-                  {restText}
-                </pre>
-              </details>
             )}
-            <p className="text-xs text-slate-400 mt-3 leading-relaxed">
-              ※ このテンプレは事実確認を目的としたものです。送付の判断・文面の修正はご自身でご確認ください。
-            </p>
           </div>
-        );
-      })()}
-
-      {/* 確認前に整理しておくとよいもの */}
-      {docChecklist && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-            確認前に整理しておくとよいもの
-          </p>
-          <ul className="space-y-2">
-            {docChecklist.map((item) => (
-              <li key={item} className="flex items-center gap-2.5 text-sm text-slate-600">
-                <svg className="w-4 h-4 shrink-0 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                </svg>
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
+        </details>
       )}
 
-      {/* ══════════════════════════════════════════
-          LAYER 4-K: Free vs Paid comparison card
-      ══════════════════════════════════════════ */}
-      {confirmTemplate && (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">無料テンプレ vs 有料初動キット</p>
-          <div className="space-y-3">
-            <div className="rounded-xl bg-white border border-slate-200 px-4 py-3 space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center bg-slate-100 text-slate-600 text-xs font-semibold px-2 py-0.5 rounded-full">無料テンプレ</span>
-              </div>
-              <ul className="space-y-1">
-                {[
-                  "汎用文面 — どの案件でも同じ内容",
-                  "確認ポイントの網羅性は限定的",
-                  "返答パターン別の対応フローなし",
-                ].map((t) => (
-                  <li key={t} className="flex items-start gap-1.5 text-xs text-slate-500">
-                    <span className="text-slate-300 shrink-0 mt-0.5">–</span>
-                    {t}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 space-y-1.5">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex items-center bg-amber-100 text-amber-700 text-xs font-semibold px-2 py-0.5 rounded-full">¥980 初動キット</span>
-              </div>
-              <ul className="space-y-1">
-                {[
-                  "今回の診断内容を反映した個別文面",
-                  "確認順序を優先度つきで整理済み",
-                  "返答パターン別の次の動き付き",
-                  "そのまま送れる状態で提供",
-                ].map((t) => (
-                  <li key={t} className="flex items-start gap-1.5 text-xs text-amber-800">
-                    <svg className="w-3 h-3 text-amber-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                    </svg>
-                    {t}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── 不安解消ブロック ── */}
+      {/* ── 詳細情報まとめアコーディオン ── */}
       {result.mode === "initial_fees" && (
         <details className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
           <summary className="flex items-center justify-between px-5 py-4 cursor-pointer select-none hover:bg-slate-50 transition-colors list-none">
+            <p className="text-xs font-semibold text-slate-600">FAQ・返答対応ガイドを見る</p>
+            <svg className="w-4 h-4 text-slate-400 shrink-0 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </summary>
+          <div className="px-5 pb-5 border-t border-slate-100 pt-4 space-y-4">
+
+        {/* 不安解消ブロック */}
+        <details className="rounded-xl border border-slate-200 overflow-hidden">
+          <summary className="flex items-center justify-between px-4 py-3 cursor-pointer select-none hover:bg-slate-50 transition-colors list-none">
             <p className="text-xs font-semibold text-slate-600">メールを送る前の不安に答えます</p>
             <svg className="w-4 h-4 text-slate-400 shrink-0 ml-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -1375,54 +1648,39 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
             ))}
           </div>
         </details>
-      )}
 
-      {/* ── B-4: 失敗回避メッセージ（initial_fees・折りたたみ） ── */}
-      {result.mode === "initial_fees" && result.overallRisk !== "safe" && (
-        <details className="rounded-xl border border-slate-100 bg-white px-4 py-3">
-          <summary className="text-xs text-slate-500 cursor-pointer select-none hover:text-slate-700 font-medium list-none flex items-center gap-1.5">
-            <svg className="w-3 h-3 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-            </svg>
-            確認メールで避けられる2つの失敗
-          </summary>
-          <ul className="space-y-1.5 mt-2.5">
-            <li className="flex items-start gap-2 text-xs text-slate-500">
-              <span className="text-slate-300 shrink-0 mt-0.5">①</span>
-              <span><strong className="text-slate-600">論点の抜け漏れ</strong>：確認すべきポイントを網羅した文面で、重要な点を見落とすリスクを下げます</span>
-            </li>
-            <li className="flex items-start gap-2 text-xs text-slate-500">
-              <span className="text-slate-300 shrink-0 mt-0.5">②</span>
-              <span><strong className="text-slate-600">伝え方の問題</strong>：強い表現や感情的な文面は逆効果になることがあります。丁寧で的確な表現に整えます</span>
-            </li>
-          </ul>
-        </details>
-      )}
+        {/* 失敗回避メッセージ */}
+        {result.overallRisk !== "safe" && (
+          <details className="rounded-xl border border-slate-100 px-4 py-3">
+            <summary className="text-xs text-slate-500 cursor-pointer select-none hover:text-slate-700 font-medium list-none flex items-center gap-1.5">
+              <svg className="w-3 h-3 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+              確認メールで避けられる2つの失敗
+            </summary>
+            <ul className="space-y-1.5 mt-2.5">
+              <li className="flex items-start gap-2 text-xs text-slate-500">
+                <span className="text-slate-300 shrink-0 mt-0.5">①</span>
+                <span><strong className="text-slate-600">論点の抜け漏れ</strong>：確認すべきポイントを網羅した文面で、重要な点を見落とすリスクを下げます</span>
+              </li>
+              <li className="flex items-start gap-2 text-xs text-slate-500">
+                <span className="text-slate-300 shrink-0 mt-0.5">②</span>
+                <span><strong className="text-slate-600">伝え方の問題</strong>：強い表現や感情的な文面は逆効果になることがあります。丁寧で的確な表現に整えます</span>
+              </li>
+            </ul>
+          </details>
+        )}
 
-      {/* ══════════════════════════════════════════
-          LAYER 4-L: PurchaseCTA (CTA #2)
-      ══════════════════════════════════════════ */}
-      {cfg.showTopCTA && (
-        <PurchaseCTA placement="refund" maxRefund={primaryAmount} mode={result.mode} />
-      )}
-
-      {/* ══════════════════════════════════════════
-          LAYER 4-M: EmailLockSection (CTA #3)
-      ══════════════════════════════════════════ */}
-      <EmailLockSection draftEmail={result.draftEmail} maxRefund={primaryAmount} mode={result.mode} />
-
-      {/* ══════════════════════════════════════════
-          LAYER 4-N/O: FAQ + Response guide accordion
-      ══════════════════════════════════════════ */}
-      {result.mode === "initial_fees" && (
-        <details className="rounded-2xl border border-slate-200 bg-white p-5">
-          <summary className="text-xs font-medium text-slate-500 cursor-pointer select-none hover:text-slate-700 list-none flex items-center gap-1.5">
+        {/* 返答対応ガイド */}
+        <details className="rounded-xl border border-slate-100 overflow-hidden">
+          <summary className="text-xs font-medium text-slate-500 cursor-pointer select-none hover:text-slate-700 list-none flex items-center gap-1.5 px-4 py-3">
             <svg className="w-3 h-3 shrink-0 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
             メール送信後の対応ガイド（返答パターン別）
           </summary>
-          <p className="text-xs text-slate-400 mt-3 mb-3 leading-relaxed">
+          <div className="px-4 pb-4 border-t border-slate-100 pt-3">
+          <p className="text-xs text-slate-400 mb-3 leading-relaxed">
             管理会社・仲介業者からの返答パターン別に、次の対応を整理しています。
           </p>
           <div className="space-y-4">
@@ -1473,6 +1731,9 @@ export default function DiagnosisResult({ result, initialFeesMeta }: Props) {
           <p className="text-xs text-slate-400 mt-4 pt-3 border-t border-slate-100 leading-relaxed">
             ※ このガイドは一般的な参考情報です。個別の状況に応じて判断してください。法的な対応については弁護士等にご相談ください。
           </p>
+          </div>
+        </details>
+          </div>
         </details>
       )}
 

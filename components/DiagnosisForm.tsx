@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type {
   DiagnosisResult as DiagnosisResultType,
   DiagnosisMode,
@@ -12,7 +12,6 @@ import type {
 } from "@/lib/types";
 import { MODE_CONFIG } from "@/lib/modes";
 import DiagnosisResult from "./DiagnosisResult";
-import FeeEstimate from "./FeeEstimate";
 import { track } from "@/lib/analytics";
 
 // ─── initial_fees ウィザード 型定義 ──────────────────────────────────────────
@@ -46,6 +45,9 @@ export interface InitialFeesMeta {
   fees: string[];
   explanation: "yes" | "insufficient" | "no";
   contractMention: "yes" | "unknown";
+  refundCandidateFees: string[];
+  totalOnlyFees: string[];
+  needsClassificationFees: string[];
 }
 
 function getIfFeedback2(explanation: string, concernTheme: string, fees: string[]): string {
@@ -190,13 +192,95 @@ const MOVE_OUT_FEE_OPTIONS: { value: FeeType; label: string }[] = [
   { value: "guarantor", label: "保証会社費用" },
 ];
 
-const MODES: { value: DiagnosisMode; label: string; icon: string; desc: string }[] = [
-  { value: "initial_fees", label: "初期費用チェック", icon: "🏠", desc: "入居前の見積書・請求書を確認" },
-  { value: "contract_review", label: "契約書チェック", icon: "📋", desc: "契約書・重要事項の条項を確認" },
-  { value: "renewal", label: "更新・再契約チェック", icon: "🔄", desc: "更新料・再契約料を確認" },
-  { value: "maintenance", label: "管理不備・修繕相談", icon: "🔧", desc: "設備不具合・害虫などの連絡補助" },
-  { value: "move_out", label: "退去費用チェック", icon: "📦", desc: "原状回復・クリーニング費用を確認" },
-  { value: "deposit_refund", label: "敷金精算チェック", icon: "💴", desc: "敷金の返還額・差引内訳を確認" },
+// ─── 初期費用フォーム：費目バケット定義 ────────────────────────────────────────
+
+type FeeBucket = "refund_candidate" | "total_only" | "needs_classification";
+
+const BUCKET_BADGE: Record<FeeBucket, { label: string; color: string }> = {
+  refund_candidate:     { label: "確認余地あり", color: "bg-amber-100 text-amber-700" },
+  total_only:          { label: "総額照合用",   color: "bg-slate-100 text-slate-600" },
+  needs_classification: { label: "性質確認",     color: "bg-blue-100 text-blue-700" },
+};
+
+const INITIAL_FEE_OPTIONS: {
+  value: FeeType;
+  label: string;
+  bucket: FeeBucket;
+  detail: string;
+  groupLabel?: string; // このアイテムで新しいグループを開始する場合にグループ名を指定
+  note?: string;       // 費目ボタン直下に表示する補足（選択・未選択を問わず常時表示）
+}[] = [
+  // ── A. 既存費目（refund_candidate） ──
+  {
+    value: "agency_fee", label: "仲介手数料", bucket: "refund_candidate",
+    detail: "法律上、あなた（借主）から取れる上限は原則0.5ヶ月分です。不動産屋は大家さん（貸主）からも手数料をもらえるため、あなたから1ヶ月分もらわなくても収入は成立します。1ヶ月分を請求するには、あなたが書面で承諾した記録が必要です。口頭の説明や重説の読み上げだけでは承諾になりません。",
+  },
+  {
+    value: "key_exchange", label: "鍵交換代", bucket: "refund_candidate",
+    detail: "鍵交換は大家さん（貸主）が次の入居者のために行う管理業務です。費用も大家さんが負担するのが原則で、あなた（借主）が払う理由は本来ありません。さらに、実際に交換されたかどうかの確認も必要です。業者名・実施日・領収書・シリンダー交換の確認・鍵の本数が揃っていない請求は根拠がありません。",
+  },
+  {
+    value: "cleaning", label: "清掃代", bucket: "refund_candidate",
+    detail: "前の住人が退去した後の清掃は大家さん（貸主）の負担が原則です。あなた（借主）が入居する前の話なので、払う理由がありません。退去時清掃の前払いとして請求されている場合、退去時にさらに請求されると二重払いになります。敷金とも別なら三重になる場合もあります。何のための清掃か説明を受けていなければ、まずそれを確認する権利があります。",
+  },
+  // ── 保証関連費用（グループ） ──
+  {
+    value: "guarantor", label: "保証会社費用（保証料）", bucket: "refund_candidate",
+    groupLabel: "保証関連費用",
+    note: "家賃保証会社に支払う費用です",
+    detail: "保証会社は大家さん（貸主）のために家賃未払いリスクに備える会社です。本来は大家さん側のコストです。ただし契約条件として加入を求められる場合、会社を自分で選べることがあります。不動産屋経由だと委託手数料が上乗せされるため、直接申し込めば安くなる場合があります。更新時にも費用が発生するかどうかも事前に確認が必要です。",
+  },
+  {
+    value: "guarantor_delegation", label: "保証会社委託料", bucket: "refund_candidate",
+    note: "仲介手数料とは別名で請求されることがある費目です。内容・根拠の確認が重要です",
+    detail: "「保証会社費用（保証料）」とは異なる名目で請求される費目です。不動産屋への委託手数料として上乗せされているケースがあり、役務内容や保証会社費用との重複の有無を確認しましょう。直接契約することで削減できる場合があります。",
+  },
+  // ── その他（refund_candidate） ──
+  {
+    value: "disinfection", label: "消毒・除菌代", bucket: "refund_candidate",
+    detail: "消毒・除菌は任意のサービスです。「必須」「全員やっています」は事実ではなく、断っても契約できます。業者によっては入居前の定期清掃と重複する場合もあり、支払い義務はありません。",
+  },
+  {
+    value: "support_24h", label: "24時間サポートプラン", bucket: "refund_candidate",
+    detail: "24時間サポートプランは任意加入です。すでに加入している火災保険と内容が重複することが多く、二重払いになる場合があります。断っても入居できます。加入が必須とされた場合はその根拠の説明を求めましょう。",
+  },
+  {
+    value: "fire_insurance", label: "火災保険料", bucket: "refund_candidate",
+    detail: "火災保険は借主が自由に保険会社・プランを選べます。特定の保険会社への強制加入は問題となる場合があります。相場は年間1〜2万円程度で、指定プランが著しく高い場合は他社見積もりと比較することを検討してください。加入が必須でも、会社選択の自由は原則あります。",
+  },
+  {
+    value: "admin_fee", label: "事務手数料・書類作成費", bucket: "refund_candidate",
+    detail: "書類作成費・事務手数料・契約事務費などは、仲介手数料に含まれる業務に対して別途請求されるケースです。仲介手数料とあわせて家賃の1.1ヶ月分を超えていないか確認が必要です。別途請求するには具体的な根拠の書面説明が必要です。",
+  },
+  {
+    value: "fire_extinguisher", label: "消火剤・防災グッズ", bucket: "refund_candidate",
+    detail: "任意費用に近い場合があります。設置が法的に必須かどうかの根拠、および説明・同意の有無を確認しましょう。任意であれば断れる可能性があります。",
+  },
+  // ── B. 新規追加（needs_classification） ──
+  {
+    value: "repair_share", label: "修理分担金", bucket: "needs_classification",
+    detail: "敷金・礼金・一時金のどれに近い性質かによって扱いが変わります。契約書上の位置づけと返還可能性を確認しましょう。",
+  },
+];
+
+// 費目value → bucket のマップ（sendSubmit 時の分類に使用）
+const FEE_BUCKET_MAP = Object.fromEntries(
+  INITIAL_FEE_OPTIONS.map((opt) => [opt.value, opt.bucket])
+) as Record<string, FeeBucket>;
+
+// 参考入力専用費目（選択式ではなく金額入力のみ・total_only 扱い）
+type RefFeeKey = "management_fee" | "common_fee" | "daily_rent" | "first_month_rent";
+const REF_FEE_OPTIONS: { key: RefFeeKey; label: string }[] = [
+  { key: "management_fee",  label: "管理費" },
+  { key: "common_fee",      label: "共益費" },
+  { key: "daily_rent",      label: "日割り家賃" },
+  { key: "first_month_rent", label: "初月賃料" },
+];
+
+const MODES: { value: DiagnosisMode; label: string; icon: string; desc: string; badge?: string }[] = [
+  { value: "initial_fees", label: "初期費用チェック", icon: "🏠", desc: "見積もり・請求の内訳を確認", badge: "おすすめ" },
+  { value: "move_out", label: "退去費用チェック", icon: "📦", desc: "敷金・クリーニング・原状回復を確認" },
+  { value: "contract_review", label: "契約書チェック", icon: "📋", desc: "特約・見落としやすい条件を確認" },
 ];
 
 // ─── フォーム状態 ────────────────────────────────────────────────────────
@@ -302,6 +386,7 @@ export default function DiagnosisForm() {
 
   // ─── initial_fees ウィザード状態 ─────────────────────────────────────────
   const [ifStep, setIfStep] = useState(1);
+  const [stepHistory, setStepHistory] = useState<number[]>([]);
   const [ifFeeDetail, setIfFeeDetail] = useState<IfFeeDetail>({
     agencyFeeMonths: "",
     agencyFeeConsent: "",
@@ -319,15 +404,24 @@ export default function DiagnosisForm() {
   const [step4Comment, setStep4Comment] = useState("");
   const [rentStr, setRentStr] = useState("");
   const [expandedFee, setExpandedFee] = useState<string | null>(null);
-  const [estimateRegion, setEstimateRegion] = useState<"metro" | "local">("metro");
-  const [estimateSeason, setEstimateSeason] = useState<"peak" | "off">("peak");
-  const [estimateBuilding, setEstimateBuilding] = useState<"new" | "young" | "old">("old");
   const [feeAmounts, setFeeAmounts] = useState<Partial<Record<string, string>>>({});
+  const [refAmounts, setRefAmounts] = useState<Partial<Record<RefFeeKey, string>>>({});
   const [depositStr, setDepositStr] = useState("");
   const [keyMoneyStr, setKeyMoneyStr] = useState("");
   const [guarantorStatus, setGuarantorStatus] = useState<"has" | "none" | "unknown" | "">("");
   const [guaranteeBaseFeeStr, setGuaranteeBaseFeeStr] = useState("");
   const [guaranteeAdminFeeStr, setGuaranteeAdminFeeStr] = useState("");
+
+  useEffect(() => {
+    if (feeQueue.length > 0 && expandedFee === null) {
+      setExpandedFee(feeQueue[0]);
+    }
+  }, [ifStep, feeQueue]);
+
+  function goToStep(next: number) {
+    setStepHistory((prev) => [...prev, ifStep]);
+    setIfStep(next);
+  }
 
   function set<K extends keyof AllModesForm>(key: K, value: AllModesForm[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -365,6 +459,7 @@ export default function DiagnosisForm() {
     setFeeError(false);
     // Reset initial_fees wizard
     setIfStep(1);
+    setStepHistory([]);
     setIfSituation("");
     setIfConcernTheme("");
     setSubmittedIfMeta(null);
@@ -380,36 +475,30 @@ export default function DiagnosisForm() {
     });
     setFeeQueue([]);
     setRentStr("");
+    setRefAmounts({});
     setGuarantorStatus("");
     setGuaranteeBaseFeeStr("");
     setGuaranteeAdminFeeStr("");
   }
 
   function goBack() {
-    if (ifStep <= 1) return;
-    if (ifStep === 7 && ifSituation === "paid") {
-      setIfStep(4);
-    } else if ((ifStep === 7 || ifStep === 4 || ifStep === 6) &&
-      (ifFeeDetail.agencyFeeMonths || ifFeeDetail.keyExchangeDone || ifFeeDetail.cleaningMandatory)) {
-      if (form.fees.includes("agency_fee")) setIfStep(8);
-      else if (form.fees.includes("key_exchange")) setIfStep(9);
-      else setIfStep(10);
-    } else {
-      setIfStep(ifStep - 1);
-    }
+    if (stepHistory.length === 0) return;
+    const prev = stepHistory[stepHistory.length - 1];
+    setStepHistory((h) => h.slice(0, -1));
+    setIfStep(prev);
   }
 
   function proceedFromFeeDetail() {
     if (feeQueue.length > 0) {
       const next = feeQueue[0];
       setFeeQueue(feeQueue.slice(1));
-      if (next === "agency_fee") setIfStep(8);
-      else if (next === "key_exchange") setIfStep(9);
-      else if (next === "cleaning") setIfStep(10);
-      else if (next === "guarantor") setIfStep(11);
-      else setIfStep(7);
+      if (next === "agency_fee") goToStep(8);
+      else if (next === "key_exchange") goToStep(9);
+      else if (next === "cleaning") goToStep(10);
+      else if (next === "guarantor") goToStep(11);
+      else goToStep(7);
     } else {
-      setIfStep(7);
+      goToStep(7);
     }
   }
 
@@ -511,6 +600,12 @@ export default function DiagnosisForm() {
               realityCategory: "document_fee",
               detail: { type: "document_fee", labelOnInvoice: "事務手数料", hasExplanation: false },
             });
+          } else if (fee === "fire_insurance") {
+            facts.push({
+              perceivedLabel: "火災保険料",
+              realityCategory: "fire_insurance",
+              detail: { type: "unknown", labelOnInvoice: "火災保険料" },
+            });
           } else {
             facts.push({
               perceivedLabel: "その他費用",
@@ -520,9 +615,14 @@ export default function DiagnosisForm() {
           }
         }
 
-        // feeAmounts: 入力があった費用金額のみ含める
+        // feeAmounts: 入力があった費用金額のみ含める（参考入力費目も合算）
         const feeAmountsPayload: InitialFeesInput["feeAmounts"] = {};
         for (const [k, v] of Object.entries(feeAmounts)) {
+          if (v && Number(v) > 0) {
+            (feeAmountsPayload as Record<string, number>)[k] = Number(v);
+          }
+        }
+        for (const [k, v] of Object.entries(refAmounts)) {
           if (v && Number(v) > 0) {
             (feeAmountsPayload as Record<string, number>)[k] = Number(v);
           }
@@ -548,10 +648,10 @@ export default function DiagnosisForm() {
           guaranteeBaseFee: guaranteeBaseFeeNum,
           guaranteeAdminFee: guaranteeAdminFeeNum,
           marketContext: {
-            region: estimateRegion,
-            season: estimateSeason,
-            buildingAge: estimateBuilding,
-            areaType: estimateRegion === "metro" ? "urban" : "local",
+            region: "metro",
+            season: "peak",
+            buildingAge: "old",
+            areaType: "urban",
           },
         };
       }
@@ -669,6 +769,11 @@ export default function DiagnosisForm() {
           fees: form.fees,
           explanation: form.explanation,
           contractMention: form.contractMention,
+          refundCandidateFees: form.fees.filter((f) => FEE_BUCKET_MAP[f] === "refund_candidate"),
+          totalOnlyFees: Object.entries(refAmounts)
+            .filter(([, v]) => v && Number(v) > 0)
+            .map(([k]) => k),
+          needsClassificationFees: form.fees.filter((f) => FEE_BUCKET_MAP[f] === "needs_classification"),
         });
       }
       try {
@@ -701,18 +806,23 @@ export default function DiagnosisForm() {
       <div>
         <p className="text-sm font-bold text-slate-800 mb-1">どの場面のご相談ですか？</p>
         <p className="text-xs text-slate-500 mb-3">選んだ場面に応じて、確認すべき費用・条項・論点を絞り込みます</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {MODES.map((m) => (
             <button
               key={m.value}
               type="button"
               onClick={() => selectMode(m.value)}
-              className={`flex flex-col items-start gap-1 px-3 py-3 rounded-xl border text-left transition-all ${
+              className={`flex flex-col items-start gap-1 px-8 py-8 rounded-xl border-2 text-left transition-all duration-200 cursor-pointer ${
                 selectedMode === m.value
                   ? "bg-blue-900 text-white border-blue-900 shadow-sm"
-                  : "bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
+                  : "bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50 hover:shadow-lg"
               }`}
             >
+              {m.badge && (
+                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded mb-1">
+                  {m.badge}
+                </span>
+              )}
               <span className="text-lg leading-none">{m.icon}</span>
               <span className="text-xs font-semibold leading-tight">{m.label}</span>
               <span
@@ -747,6 +857,7 @@ export default function DiagnosisForm() {
                 setError(null);
                 setFeeError(false);
                 setIfStep(1);
+                setStepHistory([]);
                 setIfSituation("");
                 setIfConcernTheme("");
                 setSubmittedIfMeta(null);
@@ -787,23 +898,25 @@ export default function DiagnosisForm() {
               {/* プログレス */}
               {(() => {
                 const hasFeeDetail = form.fees.includes("agency_fee") || form.fees.includes("key_exchange") || form.fees.includes("cleaning");
-                const totalSteps = ifSituation === "paid" ? (hasFeeDetail ? 8 : 6) : (hasFeeDetail ? 9 : 7);
-                let displayStep: number;
+                const totalSteps = ifSituation === "paid" ? (hasFeeDetail ? 7 : 5) : (hasFeeDetail ? 8 : 6);
+                let rawDisplayStep: number;
                 if (ifStep === 8 || ifStep === 9 || ifStep === 10) {
                   const deepQ1Answered =
                     (ifStep === 8 && ifFeeDetail.agencyFeeMonths !== "") ||
                     (ifStep === 9 && ifFeeDetail.keyExchangeDone !== "") ||
                     (ifStep === 10 && ifFeeDetail.cleaningMandatory !== "");
-                  displayStep = deepQ1Answered ? 5 : 4;
+                  rawDisplayStep = deepQ1Answered ? 5 : 4;
                 } else if (hasFeeDetail && ifStep >= 4) {
                   if (ifStep > 5 && ifSituation === "paid") {
-                    displayStep = ifStep + 1;
+                    rawDisplayStep = ifStep + 1;
                   } else {
-                    displayStep = ifStep + 2;
+                    rawDisplayStep = ifStep + 2;
                   }
                 } else {
-                  displayStep = ifStep > 5 && ifSituation === "paid" ? ifStep - 1 : ifStep;
+                  rawDisplayStep = ifStep > 5 && ifSituation === "paid" ? ifStep - 1 : ifStep;
                 }
+                // Step 2が削除されたため、ifStep>=3ではdisplayStepを1減らす
+                const displayStep = ifStep === 1 ? 1 : rawDisplayStep - 1;
                 return (
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-3">
@@ -856,7 +969,7 @@ export default function DiagnosisForm() {
                       <button
                         key={opt.value}
                         type="button"
-                        onClick={() => { setIfSituation(opt.value); setIfStep(2); }}
+                        onClick={() => { setIfSituation(opt.value); goToStep(3); }}
                         className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white hover:border-slate-400 hover:bg-slate-50 transition-all"
                       >
                         <span className="block text-sm font-medium text-slate-700">{opt.label}</span>
@@ -867,42 +980,7 @@ export default function DiagnosisForm() {
                 </div>
               )}
 
-              {/* Step 2: 気になる点 */}
-              {ifStep === 2 && (
-                <div className="space-y-3">
-                  <div>
-                    <p className="text-sm font-bold text-slate-800">一番気になることを教えてください</p>
-                    <p className="text-xs text-blue-700 bg-blue-50 border-l-2 border-blue-300 rounded-r px-2.5 py-1.5 mt-1.5 leading-relaxed">
-                      最も気になる点から確認ポイントを絞り込みます。費用の名目によって確認すべき根拠・論点が異なります。
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    {[
-                      { value: "overall" as IfConcernTheme, label: "全体的に高い・何に払っているかわからない", fees: [] as FeeType[] },
-                      { value: "agency" as IfConcernTheme, label: "仲介手数料が1ヶ月分請求されている", fees: ["agency_fee"] as FeeType[] },
-                      { value: "optional" as IfConcernTheme, label: "断れると思わなかった費用がある（消毒・サポートプランなど）", fees: ["disinfection", "support_24h"] as FeeType[] },
-                      { value: "key" as IfConcernTheme, label: "鍵交換代を請求されている", fees: ["key_exchange"] as FeeType[] },
-                      { value: "cleaning" as IfConcernTheme, label: "清掃代・クリーニング代を請求されている", fees: ["cleaning"] as FeeType[] },
-                      { value: "guarantor" as IfConcernTheme, label: "保証会社費用の内訳がわからない", fees: ["guarantor"] as FeeType[] },
-                    ].map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => {
-                          setIfConcernTheme(opt.value);
-                          if (opt.fees.length > 0) set("fees", opt.fees);
-                          setIfStep(3);
-                        }}
-                        className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition-all"
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Step 3: 費用選択 + フィードバック1 */}
+              {/* Step 2: 費用選択 + フィードバック1 */}
               {ifStep === 3 && (
                 <div className="space-y-4">
                   <div className="bg-sky-50 border border-sky-100 rounded-xl px-4 py-3 space-y-1.5">
@@ -925,60 +1003,20 @@ export default function DiagnosisForm() {
                       費用の名目によって確認すべき契約条項・負担根拠が異なります。消毒費・24時間サポート・書類作成費などは「その他」として選択してください。
                     </p>
                     <div className="space-y-2">
-                      {(() => {
-                        const NEW_FEE_OPTIONS: { value: FeeType; label: string; tier: string; tierColor: string; detail: string }[] = [
-                          {
-                            value: "agency_fee",
-                            label: "仲介手数料",
-                            tier: "確認余地あり",
-                            tierColor: "bg-amber-100 text-amber-700",
-                            detail: "法律上、あなた（借主）から取れる上限は原則0.5ヶ月分です。不動産屋は大家さん（貸主）からも手数料をもらえるため、あなたから1ヶ月分もらわなくても収入は成立します。1ヶ月分を請求するには、あなたが書面で承諾した記録が必要です。口頭の説明や重説の読み上げだけでは承諾になりません。",
-                          },
-                          {
-                            value: "key_exchange",
-                            label: "鍵交換代",
-                            tier: "確認余地あり",
-                            tierColor: "bg-amber-100 text-amber-700",
-                            detail: "鍵交換は大家さん（貸主）が次の入居者のために行う管理業務です。費用も大家さんが負担するのが原則で、あなた（借主）が払う理由は本来ありません。さらに、実際に交換されたかどうかの確認も必要です。業者名・実施日・領収書・シリンダー交換の確認・鍵の本数が揃っていない請求は根拠がありません。",
-                          },
-                          {
-                            value: "cleaning",
-                            label: "清掃代",
-                            tier: "確認余地あり",
-                            tierColor: "bg-amber-100 text-amber-700",
-                            detail: "前の住人が退去した後の清掃は大家さん（貸主）の負担が原則です。あなた（借主）が入居する前の話なので、払う理由がありません。退去時清掃の前払いとして請求されている場合、退去時にさらに請求されると二重払いになります。敷金とも別なら三重になる場合もあります。何のための清掃か説明を受けていなければ、まずそれを確認する権利があります。",
-                          },
-                          {
-                            value: "guarantor",
-                            label: "保証会社費用",
-                            tier: "条件次第",
-                            tierColor: "bg-blue-100 text-blue-700",
-                            detail: "保証会社は大家さん（貸主）のために家賃未払いリスクに備える会社です。本来は大家さん側のコストです。ただし契約条件として加入を求められる場合、会社を自分で選べることがあります。不動産屋経由だと委託手数料が上乗せされるため、直接申し込めば安くなる場合があります。更新時にも費用が発生するかどうかも事前に確認が必要です。",
-                          },
-                          {
-                            value: "disinfection",
-                            label: "消毒・除菌代",
-                            tier: "確認余地あり",
-                            tierColor: "bg-amber-100 text-amber-700",
-                            detail: "消毒・除菌は任意のサービスです。「必須」「全員やっています」は事実ではなく、断っても契約できます。業者によっては入居前の定期清掃と重複する場合もあり、支払い義務はありません。",
-                          },
-                          {
-                            value: "support_24h",
-                            label: "24時間サポートプラン",
-                            tier: "確認余地あり",
-                            tierColor: "bg-amber-100 text-amber-700",
-                            detail: "24時間サポートプランは任意加入です。すでに加入している火災保険と内容が重複することが多く、二重払いになる場合があります。断っても入居できます。加入が必須とされた場合はその根拠の説明を求めましょう。",
-                          },
-                          {
-                            value: "admin_fee",
-                            label: "事務手数料・書類作成費",
-                            tier: "確認余地あり",
-                            tierColor: "bg-amber-100 text-amber-700",
-                            detail: "書類作成費・事務手数料・契約事務費などは、仲介手数料に含まれる業務に対して別途請求されるケースです。仲介手数料とあわせて家賃の1.1ヶ月分を超えていないか確認が必要です。別途請求するには具体的な根拠の書面説明が必要です。",
-                          },
-                        ];
-                        return NEW_FEE_OPTIONS.map((opt) => (
+                      {INITIAL_FEE_OPTIONS.map((opt) => {
+                        const badge = BUCKET_BADGE[opt.bucket];
+                        const isSelected = form.fees.includes(opt.value);
+                        return (
                           <div key={opt.value}>
+                            {/* グループヘッダー */}
+                            {opt.groupLabel && (
+                              <div className="flex items-center gap-2 mt-3 mb-1">
+                                <span className="text-xs font-semibold text-slate-500 tracking-wide">
+                                  {opt.groupLabel}
+                                </span>
+                                <span className="flex-1 border-t border-slate-200" />
+                              </div>
+                            )}
                             <button
                               type="button"
                               onClick={() => {
@@ -986,7 +1024,7 @@ export default function DiagnosisForm() {
                                 setExpandedFee(expandedFee === opt.value ? null : opt.value);
                               }}
                               className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${
-                                form.fees.includes(opt.value)
+                                isSelected
                                   ? "bg-blue-900 text-white border-blue-900"
                                   : "bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50"
                               }`}
@@ -994,18 +1032,24 @@ export default function DiagnosisForm() {
                               <span className="flex items-center justify-between gap-2">
                                 <span>{opt.label}</span>
                                 <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${
-                                  form.fees.includes(opt.value)
+                                  isSelected
                                     ? "bg-white/20 text-white"
-                                    : opt.tierColor
+                                    : badge.color
                                 }`}>
-                                  {opt.tier}
+                                  {badge.label}
                                 </span>
                               </span>
                             </button>
+                            {/* 補足注釈（常時表示） */}
+                            {opt.note && (
+                              <p className="text-xs text-slate-400 pl-1 mt-0.5 leading-relaxed">
+                                ※ {opt.note}
+                              </p>
+                            )}
                             {expandedFee === opt.value && (
                               <div className="mt-1 mb-2 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-700 leading-relaxed space-y-2">
                                 <p>{opt.detail}</p>
-                                {form.fees.includes(opt.value) && (
+                                {isSelected && (
                                   <div className="flex items-center gap-2 pt-1">
                                     <span className="text-slate-500 shrink-0">請求金額（任意）:</span>
                                     <div className="relative w-36">
@@ -1018,6 +1062,7 @@ export default function DiagnosisForm() {
                                             [opt.value]: e.target.value,
                                           }))
                                         }
+                                        onWheel={(e) => e.currentTarget.blur()}
                                         placeholder="例: 55000"
                                         min={0}
                                         className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-7"
@@ -1029,10 +1074,39 @@ export default function DiagnosisForm() {
                               </div>
                             )}
                           </div>
-                        ));
-                      })()}
+                        );
+                      })}
                     </div>
                     {feeError && <p className="text-red-500 text-xs mt-2">費用を1つ以上選択してください</p>}
+
+                    {/* 参考入力セクション */}
+                    <div className="mt-4 pt-4 border-t border-slate-200 space-y-2">
+                      <p className="text-sm font-semibold text-slate-600">
+                        参考入力（通常は返金・減額対象ではありません）
+                      </p>
+                      <p className="text-xs text-slate-400 leading-relaxed">
+                        ※ 初期費用の総額妥当性や比較のために使用します
+                      </p>
+                      {REF_FEE_OPTIONS.map(({ key, label }) => (
+                        <div key={key} className="flex items-center gap-3">
+                          <span className="text-sm text-slate-500 w-28 shrink-0">{label}</span>
+                          <div className="relative w-36">
+                            <input
+                              type="number"
+                              value={refAmounts[key] ?? ""}
+                              onChange={(e) =>
+                                setRefAmounts((prev) => ({ ...prev, [key]: e.target.value }))
+                              }
+                              onWheel={(e) => e.currentTarget.blur()}
+                              placeholder="例: 10000"
+                              min={0}
+                              className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-600 focus:outline-none focus:ring-2 focus:ring-slate-200 pr-7"
+                            />
+                            <span className="absolute right-2.5 top-1.5 text-xs text-slate-400">円</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div className="space-y-3">
                     <div>
@@ -1044,6 +1118,7 @@ export default function DiagnosisForm() {
                           type="number"
                           value={rentStr}
                           onChange={(e) => setRentStr(e.target.value)}
+                          onWheel={(e) => e.currentTarget.blur()}
                           placeholder="例: 70000"
                           min={0}
                           className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
@@ -1063,6 +1138,7 @@ export default function DiagnosisForm() {
                               type="number"
                               value={depositStr}
                               onChange={(e) => setDepositStr(e.target.value)}
+                              onWheel={(e) => e.currentTarget.blur()}
                               placeholder="例: 70000"
                               min={0}
                               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
@@ -1077,6 +1153,7 @@ export default function DiagnosisForm() {
                               type="number"
                               value={keyMoneyStr}
                               onChange={(e) => setKeyMoneyStr(e.target.value)}
+                              onWheel={(e) => e.currentTarget.blur()}
                               placeholder="例: 70000"
                               min={0}
                               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
@@ -1095,51 +1172,13 @@ export default function DiagnosisForm() {
                           type="number"
                           value={form.amountStr}
                           onChange={(e) => set("amountStr", e.target.value)}
+                          onWheel={(e) => e.currentTarget.blur()}
                           placeholder="例: 250000"
                           min={0}
                           className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
                         />
                         <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
                       </div>
-                      {(() => {
-                        const fmt = (n: number) => n.toLocaleString("ja-JP") + "円";
-                        const rent = Number(rentStr);
-                        const amount = Number(form.amountStr);
-                        const deposit = Number(depositStr) || 0;
-                        const keyMoney = Number(keyMoneyStr) || 0;
-                        if (rent <= 0 || amount <= 0) return null;
-
-                        const ratio = amount / rent;
-                        // ガイドライン目安 = 敷金 + 礼金 + 初月賃料 + 仲介0.5ヶ月 + 火災保険目安
-                        const guidelineAmount = deposit + keyMoney + Math.round(rent * (1 + 0.55 + 0.08));
-                        const gap = amount - guidelineAmount;
-
-                        const industryComment = "業界的には相場です。もっと正確に言うと、水増し請求が慣例化している業界の相場です。";
-
-                        return (
-                          <div className="rounded-xl px-4 py-3 text-xs border mt-2 space-y-1.5 bg-red-50 border-red-200">
-                            <p className="font-semibold text-red-700">
-                              賃料の約{ratio.toFixed(1)}ヶ月分 ― {industryComment}
-                            </p>
-                            {gap > 0 && (
-                              <p className="text-slate-600">
-                                ガイドライン目安（約{fmt(guidelineAmount)}）と比べると、
-                                <span className="font-semibold text-red-600"> 約{fmt(gap)}上回っています。</span>
-                                この差額が確認・交渉の余地がある金額の目安です。
-                              </p>
-                            )}
-                            {gap <= 0 && (
-                              <p className="text-slate-600">
-                                ガイドライン目安（約{fmt(guidelineAmount)}）に近い水準です。ただし費用名目ごとの根拠確認は別途必要です。
-                              </p>
-                            )}
-                            <p className="text-red-400">
-                              ※ この目安は「本来必要とされる費用」をベースにした基準です
-                              {(deposit === 0 && keyMoney === 0) ? "（敷金・礼金を入力するとより正確な比較ができます）" : ""}
-                            </p>
-                          </div>
-                        );
-                      })()}
                     </div>
                   </div>
                   <button
@@ -1154,12 +1193,12 @@ export default function DiagnosisForm() {
                       if (form.fees.includes("guarantor")) queue.push("guarantor");
                       if (queue.length > 0) {
                         setFeeQueue(queue.slice(1));
-                        if (queue[0] === "agency_fee") setIfStep(8);
-                        else if (queue[0] === "key_exchange") setIfStep(9);
-                        else if (queue[0] === "cleaning") setIfStep(10);
-                        else setIfStep(11);
+                        if (queue[0] === "agency_fee") goToStep(8);
+                        else if (queue[0] === "key_exchange") goToStep(9);
+                        else if (queue[0] === "cleaning") goToStep(10);
+                        else goToStep(11);
                       } else {
-                        setIfStep(7);
+                        goToStep(7);
                       }
                     }}
                     className="w-full py-3 rounded-xl bg-blue-800 text-white text-sm font-semibold hover:bg-blue-700 transition-all shadow-sm"
@@ -1188,7 +1227,7 @@ export default function DiagnosisForm() {
                           <button
                             key={opt.mention}
                             type="button"
-                            onClick={() => { set("contractMention", opt.mention); setIfStep(7); }}
+                            onClick={() => { set("contractMention", opt.mention); goToStep(7); }}
                             className="w-full text-left px-4 py-3 rounded-xl border border-slate-200 bg-white text-sm text-slate-700 hover:border-slate-400 hover:bg-slate-50 transition-all"
                           >
                             {opt.label}
@@ -1221,7 +1260,7 @@ export default function DiagnosisForm() {
                               set("explanation", opt.explanation);
                               if (opt.pressured) set("managementIssues", true);
                               setStep4Comment(opt.comment ?? "");
-                              setIfStep(6);
+                              goToStep(6);
                             }}
                             className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, false)}`}
                           >
@@ -1264,7 +1303,7 @@ export default function DiagnosisForm() {
                           type="button"
                           onClick={() => {
                             set("contractMention", opt.value);
-                            if (opt.value !== "yes") setIfStep(7);
+                            if (opt.value !== "yes") goToStep(7);
                           }}
                           className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, form.contractMention === opt.value && opt.value === "yes")}`}
                         >
@@ -1309,7 +1348,7 @@ export default function DiagnosisForm() {
                         )}
                         <button
                           type="button"
-                          onClick={() => setIfStep(7)}
+                          onClick={() => goToStep(7)}
                           className="w-full py-2.5 rounded-xl bg-blue-800 text-white text-sm font-semibold hover:bg-blue-700 transition-all"
                         >
                           次へ →
@@ -1340,9 +1379,9 @@ export default function DiagnosisForm() {
                       0.5ヶ月分でも、大家さん（貸主）から別途手数料を受け取っている場合はアウトになる可能性があります。金額だけでセーフとは言えません。
                     </p>
                     {[
-                      { label: "0.5ヶ月分以下", value: "half" as const, risk: "yellow" as const },
-                      { label: "1ヶ月分", value: "one" as const, risk: "red" as const },
-                      { label: "1ヶ月分超", value: "over" as const, risk: "red" as const },
+                      { label: "0.5ヶ月分以下（税込0.55ヶ月以下）", value: "half" as const, risk: "yellow" as const },
+                      { label: "1ヶ月分まで（税込1.1ヶ月以下）", value: "one" as const, risk: "red" as const },
+                      { label: "1ヶ月分を超えている（税込1.1ヶ月超）", value: "over" as const, risk: "red" as const },
                     ].map((opt) => (
                       <button
                         key={opt.value}
@@ -1373,44 +1412,42 @@ export default function DiagnosisForm() {
                       {[
                         {
                           label: "算出根拠・両手仲介かどうか・承諾書類への署名まで説明された",
+                          subtext: "最も丁寧な説明。ただし署名の有無と内容が重要です",
                           value: "written" as const,
                           risk: "neutral" as const,
-                          comment: null as string | null,
                         },
                         {
                           label: "金額と名目だけ口頭で言われた",
+                          subtext: "根拠・両手仲介の有無・承諾の記録がなければ説明義務を果たしていない可能性があります",
                           value: "oral" as const,
                           risk: "yellow" as const,
-                          comment: "金額を伝えられただけでは説明義務を果たしたことにはなりません。根拠・両手仲介の有無・承諾の記録が必要です。" as string | null,
                         },
                         {
                           label: "重要事項説明書を読み上げられただけ",
+                          subtext: "読み上げだけでは理解できる説明とは言えません。算出根拠・任意性・両手仲介の有無について説明を受ける権利があります",
                           value: "oral" as const,
                           risk: "yellow" as const,
-                          comment: "読み上げだけでは理解できる説明とは言えません。算出根拠・任意性・両手仲介の有無について説明を受ける権利があります。" as string | null,
                         },
                         {
                           label: "説明はなかった・名目だけ見積書に載っていた",
+                          subtext: "説明義務の観点で最も問題が大きい状態です",
                           value: "none" as const,
                           risk: "red" as const,
-                          comment: "⚠️ 説明のない費用は根拠の確認を求めることができます。" as string | null,
                         },
-                      ].map((opt) => (
-                        <div key={opt.label}>
+                      ].map((opt) => {
+                        const isSelected = ifFeeDetail.agencyFeeConsent === opt.value && opt.value !== "oral";
+                        return (
                           <button
+                            key={opt.label}
                             type="button"
                             onClick={() => setIfFeeDetail((prev) => ({ ...prev, agencyFeeConsent: opt.value }))}
-                            className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, ifFeeDetail.agencyFeeConsent === opt.value && opt.value !== "oral")}`}
+                            className={`w-full text-left px-4 py-3 rounded-xl border text-sm transition-all ${getRiskButtonClass(opt.risk, isSelected)}`}
                           >
-                            {opt.label}
+                            <span className="block">{opt.label}</span>
+                            <span className={`block mt-0.5 text-xs ${isSelected ? "text-white/70" : "text-slate-400"}`}>{opt.subtext}</span>
                           </button>
-                          {opt.comment && ifFeeDetail.agencyFeeConsent === opt.value && (
-                            <p className={`text-xs mt-1 ${opt.risk === "red" ? "text-red-600" : "text-amber-600"}`}>
-                              {opt.comment}
-                            </p>
-                          )}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                   {/* 質問3（質問2回答後に表示） */}
@@ -1706,67 +1743,14 @@ export default function DiagnosisForm() {
                     ))}
                   </div>
 
-                  {/* 質問2: 費用内訳（質問1回答後） */}
                   {guarantorStatus !== "" && (
-                    <div className="space-y-3">
-                      <p className="text-xs font-semibold text-slate-700">費用の内訳を教えてください（任意）</p>
-                      <p className="text-xs text-slate-500 leading-relaxed">
-                        わかる範囲で入力すると、相場との比較や交渉ラインの計算精度が上がります。見積書に「保証料」「委託手数料」などの記載があれば参考にしてください。
-                      </p>
-                      <div className="space-y-2">
-                        <div>
-                          <p className="text-xs text-slate-600 mb-1">保証料本体（保証会社への費用）</p>
-                          <div className="relative w-44">
-                            <input
-                              type="number"
-                              value={guaranteeBaseFeeStr}
-                              onChange={(e) => setGuaranteeBaseFeeStr(e.target.value)}
-                              placeholder="例: 35000"
-                              min={0}
-                              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
-                            />
-                            <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-xs text-slate-600 mb-1">委託保証料（不動産屋への手数料）</p>
-                          <div className="relative w-44">
-                            <input
-                              type="number"
-                              value={guaranteeAdminFeeStr}
-                              onChange={(e) => setGuaranteeAdminFeeStr(e.target.value)}
-                              placeholder="例: 20000"
-                              min={0}
-                              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
-                            />
-                            <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
-                          </div>
-                        </div>
-                      </div>
-                      {guarantorStatus === "has" && Number(guaranteeBaseFeeStr) > 0 && Number(rentStr) > 0 && (
-                        <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-800 space-y-1">
-                          <p className="font-semibold">連帯保証人あり：保証料本体の相場は賃料の約30%（{Math.round(Number(rentStr) * 0.3).toLocaleString("ja-JP")}円）</p>
-                          {Number(guaranteeBaseFeeStr) > Math.round(Number(rentStr) * 0.3) && (
-                            <p>入力された保証料本体（{Number(guaranteeBaseFeeStr).toLocaleString("ja-JP")}円）は相場を約{(Number(guaranteeBaseFeeStr) - Math.round(Number(rentStr) * 0.3)).toLocaleString("ja-JP")}円上回っています。</p>
-                          )}
-                        </div>
-                      )}
-                      {guarantorStatus === "none" && Number(guaranteeBaseFeeStr) > 0 && Number(rentStr) > 0 && (
-                        <div className="rounded-xl bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-800 space-y-1">
-                          <p className="font-semibold">連帯保証人なし：保証料本体の相場は賃料の約50%（{Math.round(Number(rentStr) * 0.5).toLocaleString("ja-JP")}円）</p>
-                          {Number(guaranteeBaseFeeStr) > Math.round(Number(rentStr) * 0.5) && (
-                            <p>入力された保証料本体（{Number(guaranteeBaseFeeStr).toLocaleString("ja-JP")}円）は相場を約{(Number(guaranteeBaseFeeStr) - Math.round(Number(rentStr) * 0.5)).toLocaleString("ja-JP")}円上回っています。</p>
-                          )}
-                        </div>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => proceedFromFeeDetail()}
-                        className="w-full py-3 rounded-xl bg-blue-800 text-white text-sm font-semibold hover:bg-blue-700 transition-all shadow-sm"
-                      >
-                        次へ →
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => proceedFromFeeDetail()}
+                      className="w-full py-3 rounded-xl bg-blue-800 text-white text-sm font-semibold hover:bg-blue-700 transition-all shadow-sm"
+                    >
+                      次へ →
+                    </button>
                   )}
                 </div>
               )}
@@ -1774,65 +1758,6 @@ export default function DiagnosisForm() {
               {/* Step 7: メールトーン + 送信ボタン */}
               {ifStep === 7 && (
                 <div className="space-y-4">
-                  {/* 相場表示 */}
-                  {Number(rentStr) > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <p className="text-xs font-semibold text-slate-600">あなたの条件での費用目安</p>
-                      </div>
-                      {/* 地域・時期・物件の簡易入力 */}
-                      <div className="flex flex-wrap gap-2">
-                        {(["metro", "local"] as const).map((v) => (
-                          <button
-                            key={v}
-                            type="button"
-                            onClick={() => setEstimateRegion(v)}
-                            className={`px-3 py-1.5 rounded-lg text-xs border transition-all ${
-                              estimateRegion === v
-                                ? "bg-blue-800 text-white border-blue-800"
-                                : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
-                            }`}
-                          >
-                            {v === "metro" ? "首都圏" : "地方"}
-                          </button>
-                        ))}
-                        {(["peak", "off"] as const).map((v) => (
-                          <button
-                            key={v}
-                            type="button"
-                            onClick={() => setEstimateSeason(v)}
-                            className={`px-3 py-1.5 rounded-lg text-xs border transition-all ${
-                              estimateSeason === v
-                                ? "bg-blue-800 text-white border-blue-800"
-                                : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
-                            }`}
-                          >
-                            {v === "peak" ? "繁忙期（1〜3月）" : "閑散期（それ以外）"}
-                          </button>
-                        ))}
-                        {(["new", "young", "old"] as const).map((v) => (
-                          <button
-                            key={v}
-                            type="button"
-                            onClick={() => setEstimateBuilding(v)}
-                            className={`px-3 py-1.5 rounded-lg text-xs border transition-all ${
-                              estimateBuilding === v
-                                ? "bg-blue-800 text-white border-blue-800"
-                                : "bg-white text-slate-600 border-slate-200 hover:border-blue-300"
-                            }`}
-                          >
-                            {v === "new" ? "新築" : v === "young" ? "築浅（〜10年）" : "既存物件"}
-                          </button>
-                        ))}
-                      </div>
-                      <FeeEstimate
-                        rent={Number(rentStr)}
-                        region={estimateRegion}
-                        season={estimateSeason}
-                        building={estimateBuilding}
-                      />
-                    </div>
-                  )}
                   {ifSituation === "paid" && (
                     <div className="bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
                       <p className="text-sm text-amber-800 leading-relaxed">
@@ -2085,6 +2010,7 @@ export default function DiagnosisForm() {
                     type="number"
                     value={form.amountStr}
                     onChange={(e) => set("amountStr", e.target.value)}
+                    onWheel={(e) => e.currentTarget.blur()}
                     placeholder="例: 50000"
                     min={0}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
@@ -2265,6 +2191,7 @@ export default function DiagnosisForm() {
                     type="number"
                     value={form.moveOutAmountStr}
                     onChange={(e) => set("moveOutAmountStr", e.target.value)}
+                    onWheel={(e) => e.currentTarget.blur()}
                     placeholder="例: 80000"
                     min={0}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
@@ -2365,6 +2292,7 @@ export default function DiagnosisForm() {
                     type="number"
                     value={form.depositAmountStr}
                     onChange={(e) => set("depositAmountStr", e.target.value)}
+                    onWheel={(e) => e.currentTarget.blur()}
                     placeholder="例: 100000"
                     min={0}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
@@ -2380,6 +2308,7 @@ export default function DiagnosisForm() {
                     type="number"
                     value={form.expectedRefundStr}
                     onChange={(e) => set("expectedRefundStr", e.target.value)}
+                    onWheel={(e) => e.currentTarget.blur()}
                     placeholder="例: 30000"
                     min={0}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
