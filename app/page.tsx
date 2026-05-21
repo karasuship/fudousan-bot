@@ -20,12 +20,10 @@ const FACTS = [
 
 const MODES = [
   { icon: "🏠", label: "初期費用チェック", desc: "見積もり・請求の内訳を確認" },
-  { icon: "📦", label: "退去費用チェック", desc: "敷金・クリーニング・原状回復を確認" },
-  { icon: "📋", label: "契約書チェック", desc: "特約・見落としやすい条件を確認" },
 ];
 
 const STEPS = [
-  { num: "1", title: "場面を選ぶ", desc: "初期費用・退去費用・契約書の3場面から選択" },
+  { num: "1", title: "費用の内訳を入力する", desc: "見積書・請求書の費用名と金額を入力（約2分）" },
   { num: "2", title: "状況を入力する", desc: "費用の種類・説明の有無など約2分で入力" },
   { num: "3", title: "確認ポイントと次の行動が出る", desc: "何が問題か・なぜ確認が必要か・何をすべきかが整理される" },
 ];
@@ -96,26 +94,20 @@ export default function HomePage() {
       <section className="bg-[#f8fafc] px-4 py-14 sm:py-20">
         <div className="max-w-3xl mx-auto">
           <h2 className="text-xl sm:text-2xl font-bold text-[#0f172a] mb-2">
-            どの場面のご相談ですか？
+            初期費用の確認を始める
           </h2>
           <p className="text-sm text-slate-500 mb-8">
-            場面を選んで診断をスタートします
+            見積書・請求書の内訳を入力すると、確認すべき論点を整理します
           </p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {MODES.map((m) => (
-              <Link
-                key={m.label}
-                href="/diagnosis"
-                className="group bg-white border border-slate-200 border-l-4 border-l-[#0f172a] rounded-xl px-4 py-4 flex flex-col gap-1.5 hover:shadow-md transition-shadow"
-              >
-                <span className="text-xl leading-none">{m.icon}</span>
-                <span className="text-xs font-semibold text-slate-800 leading-snug group-hover:text-[#2563eb] transition-colors">
-                  {m.label}
-                </span>
-                <span className="text-xs text-slate-400 leading-tight">{m.desc}</span>
-              </Link>
-            ))}
-          </div>
+          <Link
+            href="/diagnosis"
+            className="inline-flex items-center gap-2 bg-[#0f172a] hover:bg-slate-800 text-white px-7 py-4 rounded-xl text-sm font-semibold transition-colors"
+          >
+            {MODES[0].icon} {MODES[0].label}を始める
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </Link>
         </div>
       </section>
 

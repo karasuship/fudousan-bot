@@ -6,7 +6,8 @@
       "Bash(npx next:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(ls C:\\\\Users\\\\linsh\\\\projects\\\\fudousan-bot/*.md)"
     ]
   }
 }
