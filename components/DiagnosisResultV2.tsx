@@ -74,6 +74,36 @@ const BUCKETS: Bucket[] = [
   },
 ];
 
+// ─── 難易度 ───────────────────────────────────────────────────────────────────
+
+const DIFFICULTY: Record<string, { stars: number; label: string; description: string }> = {
+  delete: {
+    stars: 1,
+    label: "交渉しやすい",
+    description: "任意費用のため削除を求めやすい",
+  },
+  free_rent: {
+    stars: 2,
+    label: "交渉できる",
+    description: "フリーレントまたは総額調整の余地がある",
+  },
+  admin_check: {
+    stars: 3,
+    label: "根拠確認が先",
+    description: "説明を求めた上で次の手を判断する",
+  },
+  confirm: {
+    stars: 3,
+    label: "根拠確認が先",
+    description: "資料・説明の確認から始める",
+  },
+  record: {
+    stars: 4,
+    label: "払う根拠あり",
+    description: "記録を保全する",
+  },
+};
+
 // ─── severity 色 ──────────────────────────────────────────────────────────────
 
 function severityClass(severity: "high" | "medium" | "low"): string {
@@ -125,6 +155,10 @@ export default function DiagnosisResultV2({ result, timing, stage, fees, onBack 
 
   const amountMap = new Map(fees.map((f) => [f.feeId, f.amount]));
 
+  const adjustAmount = result.feeStrategies
+    .filter((s) => s.strategy === "delete" || s.strategy === "free_rent")
+    .reduce((sum, s) => sum + (amountMap.get(s.feeId) ?? 0), 0);
+
   return (
     <div className="max-w-xl mx-auto px-4 py-6 space-y-5">
 
@@ -172,12 +206,23 @@ export default function DiagnosisResultV2({ result, timing, stage, fees, onBack 
               <div className="space-y-1.5">
                 {matched.map((s) => {
                   const amount = amountMap.get(s.feeId);
+                  const diff = DIFFICULTY[s.strategy];
                   return (
                     <div key={s.feeId} className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full mb-0.5 ${bucket.badgeClass}`}>
                           {s.label}
                         </span>
+                        {diff && (
+                          <div className="flex items-center gap-1 mt-0.5 mb-0.5">
+                            <span className="text-xs text-slate-500">
+                              {"★".repeat(diff.stars)}{"☆".repeat(4 - diff.stars)}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              {diff.label}
+                            </span>
+                          </div>
+                        )}
                         <p className={`text-xs leading-relaxed ${bucket.textClass}`}>{s.reason}</p>
                       </div>
                       {amount != null && amount > 0 && (
@@ -233,14 +278,31 @@ export default function DiagnosisResultV2({ result, timing, stage, fees, onBack 
       )}
 
       {/* 8. 課金CTA */}
-      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 space-y-3">
-        <p className="text-sm font-semibold text-slate-800">
-          詳細な確認メール文案を取得する
-        </p>
-        <p className="text-xs text-slate-500 leading-relaxed">
-          今回の診断内容をもとにした個別文面を生成します。
-          汎用テンプレートではなく、この状況に対応した構成です。
-        </p>
+      <div className="space-y-4">
+
+        {adjustAmount > 0 && (
+          <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-4">
+            <p className="text-xs text-slate-500 mb-1">確認・調整の余地がある費用</p>
+            <p className="text-2xl font-bold text-slate-800">{fmt(adjustAmount)}</p>
+            <p className="text-xs text-slate-500 mt-1">このまま払う前に、一度確認してください。</p>
+          </div>
+        )}
+
+        <div className="space-y-2 px-1">
+          <p className="text-xs font-medium text-slate-600">980円で手に入るもの</p>
+          <ul className="space-y-1.5 text-xs text-slate-600">
+            <li>・ 業者にそのまま送れる確認メールの全文</li>
+            <li>・ 業者の返信を貼るだけで2通目・3通目を生成</li>
+            <li>・ 解決しない場合の相談窓口と状況まとめの文章</li>
+            <li>・ 行政窓口・消費者センターへの申告に使える経緯の整理</li>
+            {timing === "pre_contract" && (
+              <li>・ 契約前なら交渉の進め方と並行してできる選択肢</li>
+            )}
+          </ul>
+          <p className="text-xs text-slate-400 mt-2">
+            汎用AIチャットでは、あなたの診断結果に基づいた構造では生成できません。
+          </p>
+        </div>
 
         {error && (
           <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
@@ -251,24 +313,18 @@ export default function DiagnosisResultV2({ result, timing, stage, fees, onBack 
         <button
           onClick={handlePurchase}
           disabled={loading}
-          className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold py-3.5 rounded-xl transition-all duration-150 active:scale-[0.97] disabled:opacity-60 disabled:cursor-not-allowed"
+          className="w-full bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white py-4 rounded-xl text-sm font-semibold transition-colors"
         >
-          {loading ? (
-            <>
-              <svg className="animate-spin w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-              処理中...
-            </>
-          ) : (
-            "詳細な確認メールを作成する（980円）"
-          )}
+          {loading ? "処理中..." : "次に何をすればいいか、全部受け取る（980円）"}
         </button>
 
-        <p className="text-xs text-slate-400 text-center">
-          ¥980 · Stripe による安全な決済
-        </p>
+        <div className="space-y-1 text-center">
+          <p className="text-xs text-slate-400">Stripeによる安全な決済</p>
+          {timing === "pre_contract" && (
+            <p className="text-xs text-slate-400">署名前なら、今日送ることができます。</p>
+          )}
+        </div>
+
       </div>
 
     </div>

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import type { DiagnosisMode } from "@/lib/types";
 import { MODE_CONFIG } from "@/lib/modes";
 import { track } from "@/lib/analytics";
+import PaymentModal from "./PaymentModal";
 
 interface Props {
   maxRefund?: number;
@@ -23,19 +24,25 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
   const modeCfg = mode ? MODE_CONFIG[mode] : null;
   const [loading] = useState(false);
   const [error] = useState<string | null>(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [isPaid, setIsPaid] = useState(false);
 
   useEffect(() => {
     track("result_cta_viewed", { mode: mode ?? "unknown", placement });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/test_dRm3co7HebRIewr9Hm7kc00";
-
   async function handlePurchase() {
     if (loading) return;
     track("result_cta_clicked", { mode: mode ?? "unknown", placement });
     track("purchase_started", { mode: mode ?? "unknown", placement });
-    window.open(STRIPE_PAYMENT_LINK, "_blank");
+    setShowPaymentModal(true);
+  }
+
+  function handlePaymentSuccess() {
+    setShowPaymentModal(false);
+    setIsPaid(true);
+    track("purchase_completed", { mode: mode ?? "unknown", placement });
   }
 
   const Button = ({ label }: { label: string }) => (
@@ -67,9 +74,29 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
     </button>
   );
 
+  if (isPaid) {
+    return (
+      <div className="mt-2 p-4 bg-green-50 border border-green-200 rounded-xl">
+        <p className="text-sm text-green-800 font-medium">
+          ご購入ありがとうございます。
+        </p>
+        <p className="text-xs text-green-700 mt-1">
+          追加の質問に答えると文面が生成されます。
+        </p>
+      </div>
+    );
+  }
+
   /* ── placement: verdict（ヴァーディクト直下・緊急性メッセージ付き） ── */
   if (placement === "verdict") {
     return (
+      <>
+        {showPaymentModal && (
+          <PaymentModal
+            onSuccess={handlePaymentSuccess}
+            onClose={() => setShowPaymentModal(false)}
+          />
+        )}
       <div className="rounded-2xl border-l-4 border-amber-400 bg-amber-50 p-5 space-y-3">
         {/* タイトル */}
         <p className="text-sm font-semibold text-amber-800">
@@ -117,11 +144,19 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
           ※ 書面での確認は、タイミングによって回答を得にくくなることがあります
         </p>
       </div>
+      </>
     );
   }
 
   /* ── placement: refund（回収可能額直下・ROI訴求） ── */
   return (
+    <>
+      {showPaymentModal && (
+        <PaymentModal
+          onSuccess={handlePaymentSuccess}
+          onClose={() => setShowPaymentModal(false)}
+        />
+      )}
     <div className="space-y-2.5 pt-1">
       {maxRefund && (
         <div className="flex items-center gap-2 text-sm text-slate-600 bg-slate-50 rounded-xl px-4 py-3">
@@ -153,5 +188,6 @@ export default function PurchaseCTA({ maxRefund, placement, mode }: Props) {
         ※ 契約・支払い前後など、早い段階での確認が有効です
       </p>
     </div>
+    </>
   );
 }

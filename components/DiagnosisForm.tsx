@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type {
   DiagnosisResult as DiagnosisResultType,
   DiagnosisMode,
@@ -13,6 +13,16 @@ import type {
 import { MODE_CONFIG } from "@/lib/modes";
 import DiagnosisResult from "./DiagnosisResult";
 import { track } from "@/lib/analytics";
+import Phase1Form from "./Phase1Form";
+import Phase1ResultView from "./Phase1ResultView";
+import Phase2Form from "./Phase2Form";
+import { generateEmailSet, EmailSet } from "@/lib/generateEmail";
+import type { Phase1Result, Phase2Answers, Phase1Answers } from "@/lib/types";
+import { adaptPhase1ToApiExtras } from "@/lib/phase1Adapter";
+import type { Phase1ApiExtras } from "@/lib/phase1Adapter";
+import type { DiagnosisInput2, DiagnosisResult2 } from "@/lib/types_v2";
+import FlowRoot from "./diagnosis/FlowRoot";
+import DiagnosisResultV2 from "./DiagnosisResultV2";
 
 // ─── initial_fees ウィザード 型定義 ──────────────────────────────────────────
 
@@ -48,6 +58,7 @@ export interface InitialFeesMeta {
   refundCandidateFees: string[];
   totalOnlyFees: string[];
   needsClassificationFees: string[];
+  claimedTotalAmount?: number;
 }
 
 function getIfFeedback2(explanation: string, concernTheme: string, fees: string[]): string {
@@ -174,6 +185,12 @@ function getRiskButtonClass(
   return "bg-blue-800 text-white border-blue-800";
 }
 
+// 総額計算から除外する費目（返還・調整対象外）
+const TOTAL_EXCLUDE_FEES = [
+  "rent", "management_fee", "deposit",
+  "security_deposit", "key_money",
+];
+
 const FEE_OPTIONS: { value: FeeType; label: string }[] = [
   { value: "renewal_fee", label: "更新料" },
   { value: "recontracting_fee", label: "再契約料" },
@@ -230,11 +247,6 @@ const INITIAL_FEE_OPTIONS: {
     note: "家賃保証会社に支払う費用です",
     detail: "保証会社は大家さん（貸主）のために家賃未払いリスクに備える会社です。本来は大家さん側のコストです。ただし契約条件として加入を求められる場合、会社を自分で選べることがあります。不動産屋経由だと委託手数料が上乗せされるため、直接申し込めば安くなる場合があります。更新時にも費用が発生するかどうかも事前に確認が必要です。",
   },
-  {
-    value: "guarantor_delegation", label: "保証会社委託料", bucket: "refund_candidate",
-    note: "仲介手数料とは別名で請求されることがある費目です。内容・根拠の確認が重要です",
-    detail: "「保証会社費用（保証料）」とは異なる名目で請求される費目です。不動産屋への委託手数料として上乗せされているケースがあり、役務内容や保証会社費用との重複の有無を確認しましょう。直接契約することで削減できる場合があります。",
-  },
   // ── その他（refund_candidate） ──
   {
     value: "disinfection", label: "消毒・除菌代", bucket: "refund_candidate",
@@ -279,8 +291,9 @@ const REF_FEE_OPTIONS: { key: RefFeeKey; label: string }[] = [
 
 const MODES: { value: DiagnosisMode; label: string; icon: string; desc: string; badge?: string }[] = [
   { value: "initial_fees", label: "初期費用チェック", icon: "🏠", desc: "見積もり・請求の内訳を確認", badge: "おすすめ" },
-  { value: "move_out", label: "退去費用チェック", icon: "📦", desc: "敷金・クリーニング・原状回復を確認" },
-  { value: "contract_review", label: "契約書チェック", icon: "📋", desc: "特約・見落としやすい条件を確認" },
+  // TODO: 将来復活予定
+  // { value: "move_out", label: "退去費用チェック", icon: "📦", desc: "敷金・クリーニング・原状回復を確認" },
+  // { value: "contract_review", label: "契約書チェック", icon: "📋", desc: "特約・見落としやすい条件を確認" },
 ];
 
 // ─── フォーム状態 ────────────────────────────────────────────────────────
@@ -377,7 +390,10 @@ const INITIAL_FORM: AllModesForm = {
 // ─── メインコンポーネント ────────────────────────────────────────────────
 
 export default function DiagnosisForm() {
-  const [selectedMode, setSelectedMode] = useState<DiagnosisMode | null>(null);
+  // TODO: 将来他モード復活時は true に戻す
+  const showOtherModes = false as boolean;
+
+  const [selectedMode, setSelectedMode] = useState<DiagnosisMode | null>("initial_fees");
   const [form, setForm] = useState<AllModesForm>(INITIAL_FORM);
   const [result, setResult] = useState<DiagnosisResultType | null>(null);
   const [loading, setLoading] = useState(false);
@@ -405,12 +421,63 @@ export default function DiagnosisForm() {
   const [rentStr, setRentStr] = useState("");
   const [expandedFee, setExpandedFee] = useState<string | null>(null);
   const [feeAmounts, setFeeAmounts] = useState<Partial<Record<string, string>>>({});
+
+  // feeAmountsの合計を自動計算（除外費目を除く）
+  const autoCalculatedTotal = useMemo(() => {
+    return Object.entries(feeAmounts)
+      .filter(([key]) => !TOTAL_EXCLUDE_FEES.includes(key))
+      .reduce((sum, [, val]) => {
+        const n = Number(val);
+        return sum + (isNaN(n) ? 0 : n);
+      }, 0);
+  }, [feeAmounts]);
   const [refAmounts, setRefAmounts] = useState<Partial<Record<RefFeeKey, string>>>({});
   const [depositStr, setDepositStr] = useState("");
   const [keyMoneyStr, setKeyMoneyStr] = useState("");
   const [guarantorStatus, setGuarantorStatus] = useState<"has" | "none" | "unknown" | "">("");
   const [guaranteeBaseFeeStr, setGuaranteeBaseFeeStr] = useState("");
-  const [guaranteeAdminFeeStr, setGuaranteeAdminFeeStr] = useState("");
+
+  // ─── フェーズ1/2 診断フロー ──────────────────────────────────────────────
+  const [phase1Active, setPhase1Active] = useState(false);
+  const [phase1Result, setPhase1Result] = useState<Phase1Result | null>(null);
+  const [phase1ApiExtras, setPhase1ApiExtras] = useState<Phase1ApiExtras | null>(null);
+  const [phase2Purchased, setPhase2Purchased] = useState(false);
+  const [phase2Done, setPhase2Done] = useState(false);
+  const [emailSet, setEmailSet] = useState<EmailSet | null>(null);
+
+  // ─── V2 入力状態 ────────────────────────────────────────────────────────────
+  // ─── V2 入力状態（FlowRootから受け取る） ────────────────────────────────────
+  const [v2Input, setV2Input] = useState<DiagnosisInput2 | null>(null);
+  const [v2Result, setV2Result] = useState<DiagnosisResult2 | null>(null);
+  const [v2Loading, setV2Loading] = useState(false);
+  const [v2Error, setV2Error] = useState<string | null>(null);
+
+  function buildDiagnosisInput2(): DiagnosisInput2 | null {
+    return v2Input;
+  }
+
+  async function handleV2Submit() {
+    if (!v2Input || v2Input.fees.length === 0) return;
+    setV2Loading(true);
+    setV2Error(null);
+    try {
+      const res = await fetch("/api/diagnose-v2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(v2Input),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setV2Error(data.error ?? "診断に失敗しました");
+        return;
+      }
+      setV2Result(data as DiagnosisResult2);
+    } catch {
+      setV2Error("通信エラーが発生しました");
+    } finally {
+      setV2Loading(false);
+    }
+  }
 
   useEffect(() => {
     if (feeQueue.length > 0 && expandedFee === null) {
@@ -478,7 +545,6 @@ export default function DiagnosisForm() {
     setRefAmounts({});
     setGuarantorStatus("");
     setGuaranteeBaseFeeStr("");
-    setGuaranteeAdminFeeStr("");
   }
 
   function goBack() {
@@ -629,7 +695,6 @@ export default function DiagnosisForm() {
         }
         // guarantor fields (split送信のみ・feeAmounts.guarantor への再合算はしない)
         const guaranteeBaseFeeNum = guaranteeBaseFeeStr ? Number(guaranteeBaseFeeStr) : undefined;
-        const guaranteeAdminFeeNum = guaranteeAdminFeeStr ? Number(guaranteeAdminFeeStr) : undefined;
 
         return {
           mode: "initial_fees" as const,
@@ -639,14 +704,13 @@ export default function DiagnosisForm() {
           hasDocuments,
           facts,
           emailTone: form.emailTone,
-          claimedTotalAmount: form.amountStr ? Number(form.amountStr) : undefined,
+          claimedTotalAmount: autoCalculatedTotal > 0 ? autoCalculatedTotal : (form.amountStr ? Number(form.amountStr) : undefined),
           monthlyRent: rentStr ? Number(rentStr) : undefined,
           depositAmount: depositStr ? Number(depositStr) : undefined,
           keyMoneyAmount: keyMoneyStr ? Number(keyMoneyStr) : undefined,
           feeAmounts: Object.keys(feeAmountsPayload ?? {}).length > 0 ? feeAmountsPayload : undefined,
           guarantorStatus: guarantorStatus || undefined,
           guaranteeBaseFee: guaranteeBaseFeeNum,
-          guaranteeAdminFee: guaranteeAdminFeeNum,
           marketContext: {
             region: "metro",
             season: "peak",
@@ -747,6 +811,12 @@ export default function DiagnosisForm() {
     const payload = buildPayload();
     if (!payload) return;
 
+    // Phase3-A: V2 payload preview (console only, no API call yet)
+    const v2Input = buildDiagnosisInput2();
+    if (v2Input) {
+      console.log("[V2 DiagnosisInput2]", v2Input);
+    }
+
     track("diagnosis_started", { mode: selectedMode ?? undefined });
 
     setLoading(true);
@@ -754,7 +824,7 @@ export default function DiagnosisForm() {
       const res = await fetch("/api/diagnose", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, ...(phase1ApiExtras ?? {}) }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -774,6 +844,7 @@ export default function DiagnosisForm() {
             .filter(([, v]) => v && Number(v) > 0)
             .map(([k]) => k),
           needsClassificationFees: form.fees.filter((f) => FEE_BUCKET_MAP[f] === "needs_classification"),
+          claimedTotalAmount: autoCalculatedTotal > 0 ? autoCalculatedTotal : (form.amountStr ? Number(form.amountStr) : undefined),
         });
       }
       try {
@@ -797,12 +868,23 @@ export default function DiagnosisForm() {
     setResult(null);
     setError(null);
     setFeeError(false);
+    setPhase1Active(false);
+    setPhase1Result(null);
+    setPhase1ApiExtras(null);
+    setPhase2Purchased(false);
+    setPhase2Done(false);
+    setEmailSet(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function handlePhase2Result(p1: Phase1Result, p2Answers: Phase2Answers) {
+    setEmailSet(generateEmailSet(p1, p2Answers));
+    setPhase2Done(true);
   }
 
   return (
     <div className="space-y-8">
-      {/* ── Step 1: モード選択 ── */}
+      {/* ── Step 1: モード選択 ── TODO: 将来復活予定（他モード追加時に再表示）
       <div>
         <p className="text-sm font-bold text-slate-800 mb-1">どの場面のご相談ですか？</p>
         <p className="text-xs text-slate-500 mb-3">選んだ場面に応じて、確認すべき費用・条項・論点を絞り込みます</p>
@@ -812,85 +894,43 @@ export default function DiagnosisForm() {
               key={m.value}
               type="button"
               onClick={() => selectMode(m.value)}
-              className={`flex flex-col items-start gap-1 px-8 py-8 rounded-xl border-2 text-left transition-all duration-200 cursor-pointer ${
-                selectedMode === m.value
-                  ? "bg-blue-900 text-white border-blue-900 shadow-sm"
-                  : "bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:bg-blue-50 hover:shadow-lg"
-              }`}
+              ...
             >
-              {m.badge && (
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded mb-1">
-                  {m.badge}
-                </span>
-              )}
-              <span className="text-lg leading-none">{m.icon}</span>
-              <span className="text-xs font-semibold leading-tight">{m.label}</span>
-              <span
-                className={`text-xs leading-tight ${
-                  selectedMode === m.value ? "text-slate-300" : "text-slate-400"
-                }`}
-              >
-                {m.desc}
-              </span>
+              ...
             </button>
           ))}
         </div>
       </div>
+      ── */}
+
+      {/* ── フェーズ1：かんたん診断 ── TODO: 将来復活予定
+      {!phase1Active && !phase1Result && !selectedMode && (
+        <div className="border-t border-slate-100 pt-6">
+          <p className="text-xs text-slate-500 mb-3 text-center">または、より簡単に状況を確認する</p>
+          <button
+            type="button"
+            onClick={() => setPhase1Active(true)}
+            className="w-full border-2 border-dashed border-blue-300 text-blue-700 py-4 rounded-xl text-sm font-medium hover:bg-blue-50 transition-colors"
+          >
+            6問でかんたん診断（フェーズ1）
+          </button>
+        </div>
+      )}
+      ── */}
 
       {/* ── Step 2: フォーム ── */}
       {selectedMode && (
         <form onSubmit={handleSubmit} className="space-y-7">
-          {/* モードバッジ + 変更 */}
+          {/* モードバッジ + 変更 ── TODO: 将来復活予定（他モード追加時に再表示）
           <div className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className="text-base">{MODE_CONFIG[selectedMode].icon}</span>
-              <span className="text-sm font-semibold text-slate-700">
-                {MODE_CONFIG[selectedMode].label}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedMode(null);
-                setForm({ ...INITIAL_FORM, emailTone: form.emailTone });
-                setResult(null);
-                setError(null);
-                setFeeError(false);
-                setIfStep(1);
-                setStepHistory([]);
-                setIfSituation("");
-                setIfConcernTheme("");
-                setSubmittedIfMeta(null);
-                setIfFeeDetail({
-                  agencyFeeMonths: "",
-                  agencyFeeConsent: "",
-                  agencyFeeBothSides: "",
-                  agencyFeeLandlord: "",
-                  keyExchangeDone: "",
-                  keyExchangeNew: "",
-                  cleaningMandatory: "",
-                  cleaningContract: "",
-                });
-                setFeeQueue([]);
-                setRentStr("");
-                setGuarantorStatus("");
-                setGuaranteeBaseFeeStr("");
-                setGuaranteeAdminFeeStr("");
-              }}
-              className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              変更
-            </button>
+            ...（モードバッジ・変更ボタン）...
           </div>
-
           {selectedMode !== "initial_fees" && (
             <p className="text-xs text-slate-400 -mt-3">
               入力内容をもとに、確認すべきポイントを絞り込みます
             </p>
           )}
+          ── */}
 
           {/* ── Mode 1: 初期費用チェック（ウィザード形式）── */}
           {selectedMode === "initial_fees" && (
@@ -1164,20 +1204,15 @@ export default function DiagnosisForm() {
                       </div>
                     </div>
                     <div>
-                      <p className="text-xs font-semibold text-slate-700 mb-1">
-                        請求総額（全費用の合計）
-                      </p>
-                      <div className="relative w-44">
-                        <input
-                          type="number"
-                          value={form.amountStr}
-                          onChange={(e) => set("amountStr", e.target.value)}
-                          onWheel={(e) => e.currentTarget.blur()}
-                          placeholder="例: 250000"
-                          min={0}
-                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
-                        />
-                        <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
+                      {/* 総額：自動計算値を表示 */}
+                      <div className="rounded-xl border border-slate-200 px-4 py-3 bg-slate-50">
+                        <p className="text-xs text-slate-500 mb-1">請求総額（自動計算）</p>
+                        <p className="text-lg font-bold text-slate-800">
+                          ¥{autoCalculatedTotal.toLocaleString("ja-JP")}
+                        </p>
+                        <p className="text-xs text-slate-400 mt-1">
+                          ※ 賃料・管理費・敷金を除く費目の合計
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -1744,13 +1779,43 @@ export default function DiagnosisForm() {
                   </div>
 
                   {guarantorStatus !== "" && (
-                    <button
-                      type="button"
-                      onClick={() => proceedFromFeeDetail()}
-                      className="w-full py-3 rounded-xl bg-blue-800 text-white text-sm font-semibold hover:bg-blue-700 transition-all shadow-sm"
-                    >
-                      次へ →
-                    </button>
+                    <>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-700 mb-3">
+                          保証会社費用（保証料）の金額を入力してください
+                        </p>
+                        <p className="text-xs text-slate-500 mb-4">
+                          全保連の相場（賃料の約50%）と比較して、
+                          超過分を交渉対象として算出します。
+                        </p>
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-xs font-semibold text-slate-600 mb-1">
+                              保証料（初回）
+                            </p>
+                            <div className="relative w-44">
+                              <input
+                                type="number"
+                                value={guaranteeBaseFeeStr}
+                                onChange={(e) => setGuaranteeBaseFeeStr(e.target.value)}
+                                onWheel={(e) => e.currentTarget.blur()}
+                                placeholder="例: 35000"
+                                min={0}
+                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 pr-8"
+                              />
+                              <span className="absolute right-3 top-2.5 text-sm text-slate-400">円</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => proceedFromFeeDetail()}
+                        className="w-full py-3 rounded-xl bg-blue-800 text-white text-sm font-semibold hover:bg-blue-700 transition-all shadow-sm"
+                      >
+                        次へ →
+                      </button>
+                    </>
                   )}
                 </div>
               )}
@@ -1873,8 +1938,8 @@ export default function DiagnosisForm() {
             </div>
           )}
 
-          {/* ── Mode 2: 契約書チェック ── */}
-          {selectedMode === "contract_review" && (
+          {/* ── Mode 2: 契約書チェック ── TODO: 将来復活予定 */}
+          {showOtherModes && selectedMode === "contract_review" && (
             <>
               <div>
                 <Label>契約種別</Label>
@@ -1948,8 +2013,8 @@ export default function DiagnosisForm() {
             </>
           )}
 
-          {/* ── Mode 3: 更新・再契約チェック ── */}
-          {selectedMode === "renewal" && (
+          {/* ── Mode 3: 更新・再契約チェック ── TODO: 将来復活予定 */}
+          {showOtherModes && selectedMode === "renewal" && (
             <>
               <div>
                 <Label>契約種別</Label>
@@ -2072,8 +2137,8 @@ export default function DiagnosisForm() {
             </>
           )}
 
-          {/* ── Mode 4: 管理不備・修繕相談 ── */}
-          {selectedMode === "maintenance" && (
+          {/* ── Mode 4: 管理不備・修繕相談 ── TODO: 将来復活予定 */}
+          {showOtherModes && selectedMode === "maintenance" && (
             <>
               <div>
                 <Label>不具合の種類</Label>
@@ -2157,8 +2222,8 @@ export default function DiagnosisForm() {
             </>
           )}
 
-          {/* ── Mode 5: 退去費用チェック ── */}
-          {selectedMode === "move_out" && (
+          {/* ── Mode 5: 退去費用チェック ── TODO: 将来復活予定 */}
+          {showOtherModes && selectedMode === "move_out" && (
             <>
               <div>
                 <Label>請求されている費用（複数選択可）</Label>
@@ -2282,8 +2347,8 @@ export default function DiagnosisForm() {
             </>
           )}
 
-          {/* ── Mode 6: 敷金精算チェック ── */}
-          {selectedMode === "deposit_refund" && (
+          {/* ── Mode 6: 敷金精算チェック ── TODO: 将来復活予定 */}
+          {showOtherModes && selectedMode === "deposit_refund" && (
             <>
               <div>
                 <Label>敷金額（任意）</Label>
@@ -2362,8 +2427,8 @@ export default function DiagnosisForm() {
             </>
           )}
 
-          {/* ── 共通: 状況の詳細・メールトーン（initial_fees はウィザード内で完結） ── */}
-          {selectedMode !== "initial_fees" && (
+          {/* ── 共通: 状況の詳細・メールトーン（initial_fees はウィザード内で完結） ── TODO: 将来復活予定 */}
+          {showOtherModes && selectedMode !== "initial_fees" && (
             <>
               <div>
                 <Label>状況の詳細（任意）</Label>
@@ -2437,6 +2502,124 @@ export default function DiagnosisForm() {
           <DiagnosisResult result={result} initialFeesMeta={submittedIfMeta} />
         </div>
       )}
+
+      {/* ── フェーズ1：質問フォーム ── */}
+      {phase1Active && !phase1Result && (
+        <div className="border-t border-slate-100 pt-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-slate-800">かんたん診断</h2>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="text-xs text-slate-400 hover:text-slate-600"
+            >
+              キャンセル
+            </button>
+          </div>
+          <Phase1Form onResult={(r, a) => {
+            setPhase1Active(false);
+            setPhase1Result(r);
+            setPhase1ApiExtras(adaptPhase1ToApiExtras(a));
+          }} />
+        </div>
+      )}
+
+      {/* ── フェーズ1：結果 ── */}
+      {phase1Result && !phase2Done && (
+        <div className="border-t border-slate-100 pt-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-base font-semibold text-slate-800">診断結果</h2>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="text-xs text-slate-400 hover:text-slate-600"
+            >
+              最初からやり直す
+            </button>
+          </div>
+          {!phase2Purchased ? (
+            <Phase1ResultView
+              result={phase1Result}
+              onPhase2={() => setPhase2Purchased(true)}
+              onReset={handleReset}
+            />
+          ) : (
+            <div className="space-y-4">
+              <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                <p className="text-sm text-green-800 font-medium">ご購入ありがとうございます。追加の質問にお答えください。</p>
+              </div>
+              <Phase2Form
+                phase1Result={phase1Result}
+                onResult={(p2) => handlePhase2Result(phase1Result, p2)}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── フェーズ2：メール文面 ── */}
+      {phase2Done && emailSet && (
+        <div className="border-t border-slate-100 pt-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-semibold text-slate-800">3ラリー文面</h2>
+            <button
+              type="button"
+              onClick={handleReset}
+              className="text-xs text-slate-400 hover:text-slate-600"
+            >
+              最初からやり直す
+            </button>
+          </div>
+          {([
+            { label: "1通目：確認・事実固定", body: emailSet.first },
+            { label: "2通目：相手の返しへの対応", body: emailSet.second },
+            { label: "3通目：着地・解決提案", body: emailSet.third },
+          ] as const).map((email, i) => (
+            <div key={i} className="border border-slate-200 rounded-xl overflow-hidden">
+              <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between">
+                <span className="text-sm font-semibold text-slate-700">{email.label}</span>
+              </div>
+              <div className="px-4 py-4">
+                <pre className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed font-sans">
+                  {email.body}
+                </pre>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── 新診断入力フロー（V2） ── */}
+      <div className="border-t border-slate-200 pt-6">
+        <h2 className="text-base font-semibold text-slate-800 mb-4">新診断入力</h2>
+        <FlowRoot onChange={(input) => { setV2Input(input); setV2Result(null); setV2Error(null); }} />
+
+        {v2Input && v2Input.fees.length > 0 && (
+          <div className="mt-5 space-y-3">
+            {v2Error && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                {v2Error}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={handleV2Submit}
+              disabled={v2Loading}
+              className="w-full bg-slate-800 text-white py-3 rounded-xl text-sm font-medium hover:bg-slate-700 disabled:opacity-50 transition-colors"
+            >
+              {v2Loading ? "診断中..." : "診断する（新フロー）"}
+            </button>
+            {v2Result && (
+              <DiagnosisResultV2
+                result={v2Result}
+                timing={v2Input.timing}
+                stage={v2Input.stage}
+                fees={v2Input.fees}
+              />
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

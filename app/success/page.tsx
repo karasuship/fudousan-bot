@@ -6,23 +6,33 @@ export const metadata = {
   title: "決済完了｜賃貸費用チェッカー",
 };
 
-/** Stripe に問い合わせて支払い状態を確認する（サーバーサイド） */
-async function verifyPayment(sessionId: string | undefined): Promise<boolean> {
-  if (!sessionId) return false;
+interface SessionResult {
+  paid: boolean;
+  timing: string;
+  stage: string;
+}
+
+/** Stripe に問い合わせて支払い状態とmetadataを確認する（サーバーサイド） */
+async function verifyPayment(sessionId: string | undefined): Promise<SessionResult> {
+  if (!sessionId) return { paid: false, timing: "", stage: "" };
 
   const secretKey = process.env.STRIPE_SECRET_KEY;
   if (!secretKey) {
     console.error("[success] STRIPE_SECRET_KEY が未設定です");
-    return false;
+    return { paid: false, timing: "", stage: "" };
   }
 
   try {
     const stripe = new Stripe(secretKey);
     const session = await stripe.checkout.sessions.retrieve(sessionId);
-    return session.payment_status === "paid";
+    return {
+      paid: session.payment_status === "paid",
+      timing: session.metadata?.timing ?? "",
+      stage: session.metadata?.stage ?? "",
+    };
   } catch (err) {
     console.error("[success] Stripe 確認エラー:", err);
-    return false;
+    return { paid: false, timing: "", stage: "" };
   }
 }
 
@@ -34,7 +44,9 @@ export default async function SuccessPage({
 }) {
   const params = await searchParams;
   // Payment Link does not pass session_id — treat missing session_id as paid
-  const paid = params.session_id ? await verifyPayment(params.session_id) : true;
+  const { paid, timing, stage } = params.session_id
+    ? await verifyPayment(params.session_id)
+    : { paid: true, timing: "", stage: "" };
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-12">
@@ -44,7 +56,7 @@ export default async function SuccessPage({
           <div className="text-center py-16 text-sm text-slate-400">読み込み中...</div>
         }
       >
-        <SuccessClient paid={paid} />
+        <SuccessClient paid={paid} timing={timing} stage={stage} />
       </Suspense>
     </div>
   );

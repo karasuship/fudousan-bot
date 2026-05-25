@@ -610,6 +610,62 @@ export function detectAgentResponseIssues(agentResponse: AgentResponse | null): 
 
 // ─── 費目別推奨戦略 ───────────────────────────────────────────────────────────
 
+function getFeeReason(
+  feeId: string,
+  strategy: IssueStrategy,
+  label: string
+): string {
+  if (strategy === "delete") {
+    if (feeId === "disinfection")
+      return "任意サービスです。断っても入居を拒否できません。削除を求めてください。";
+    if (feeId === "support_24h")
+      return "任意サービスです。火災保険の付帯サービスと重複する可能性があります。削除を求めてください。";
+    if (feeId === "admin_fee")
+      return "仲介業者の基本業務のコストを転嫁している可能性があります。削除または根拠確認を求めてください。";
+    return `${label}には削除を求めるべき根拠があります。`;
+  }
+
+  if (strategy === "free_rent") {
+    if (feeId === "agency_fee")
+      return "原則0.5ヶ月分との説明・書面承諾がない可能性があります。フリーレントまたは礼金との総額調整を提案できます。";
+    if (feeId === "cleaning")
+      return "本来貸主負担が原則です。根拠確認の上、フリーレントまたは総額調整を提案できます。";
+    if (feeId === "key_exchange")
+      return "本来貸主が行うべき費用です。根拠・実態確認の上、フリーレントまたは総額調整を提案できます。";
+    if (feeId === "guarantor")
+      return "複数社選択の説明がない可能性があります。選択肢の確認またはフリーレントでの調整を提案できます。";
+    if (feeId === "fire_insurance")
+      return "他社プランを選べる可能性があります。最低補償内容を確認の上、自分で選ぶことを検討できます。";
+    if (feeId === "key_money")
+      return "慣行であり法的義務ではありません。フリーレントまたは他費用との総額調整を提案できます。";
+    return `${label}をフリーレント転換として交渉する余地があります。`;
+  }
+
+  if (strategy === "admin_check") {
+    if (feeId === "guarantor")
+      return "グループ会社の利益相反が未開示の可能性があります。説明を求め、応じない場合は行政窓口への相談材料になります。";
+    if (feeId === "fire_insurance")
+      return "代理店関係の利益相反が未開示の可能性があります。説明を求め、応じない場合は行政窓口への相談材料になります。";
+    return `${label}については根拠確認を求め、応じない場合は行政窓口への相談を検討してください。`;
+  }
+
+  if (strategy === "confirm") {
+    if (feeId === "key_exchange")
+      return "実施証明・支払いと実施の前後関係について確認が必要です。資料の提示を求めてください。";
+    if (feeId === "cleaning")
+      return "タイミング・金額根拠・業者情報について確認が必要です。";
+    if (feeId === "agency_fee")
+      return "貸主側受領の有無・合算上限との関係について確認が必要です。";
+    return `${label}の根拠・条件について書面で確認を求めてください。`;
+  }
+
+  if (strategy === "record") {
+    return `${label}については払う根拠があります。関連する記録を保全してください。`;
+  }
+
+  return `${label}の根拠・条件について確認を求めてください。`;
+}
+
 export function buildFeeStrategies(
   fees: FeeEntry[],
   issues: Issue2[]
@@ -624,19 +680,11 @@ export function buildFeeStrategies(
     const strategy: IssueStrategy = topIssue?.strategy ?? "confirm";
     const label = FEE_LABEL[fee.feeId];
 
-    const reasonMap: Record<IssueStrategy, string> = {
-      delete: `${label}には削除を求めるべき根拠があります。`,
-      free_rent: `${label}をフリーレント転換として交渉する余地があります。`,
-      admin_check: `${label}については行政・消費者センターへの相談を検討してください。`,
-      record: `${label}に関する記録を保全・固定してください。`,
-      confirm: `${label}の根拠・条件について書面で確認を求めてください。`,
-    };
-
     return {
       feeId: fee.feeId,
       label,
       strategy,
-      reason: reasonMap[strategy],
+      reason: getFeeReason(fee.feeId, strategy, label),
     };
   });
 }

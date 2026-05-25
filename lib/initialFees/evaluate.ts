@@ -47,6 +47,23 @@ const FEE_TYPE_FACTOR: Record<string, number> = {
   guarantee_admin: 1.0,
 };
 
+// ── 任意性説明判定ヘルパー ────────────────────────────────────────────────────
+
+function isNotVoluntaryExplained(
+  feeKey: string,
+  voluntaryExplainedFees: string[]
+): boolean {
+  return !voluntaryExplainedFees.includes(feeKey);
+}
+
+const VOLUNTARY_FEE_KEYS = [
+  "disinfection",
+  "support_24h",
+  "key_exchange",
+  "admin_fee",
+  "other",
+];
+
 // ── 市場係数 ──────────────────────────────────────────────────────────────────
 
 function getMarketFactor(ctx: MarketContext): number {
@@ -447,9 +464,21 @@ function buildItemizedReview(
       if (neg === "high") neg = "medium";
     }
 
+    // 任意性の説明がなかった主戦場費用は negotiability を high に強制
+    if (
+      VOLUNTARY_FEE_KEYS.includes(entry.key) &&
+      isNotVoluntaryExplained(entry.key, canonical.voluntaryExplainedFees)
+    ) {
+      neg = "high";
+    }
+
+    // 重説前払いは全費用の論点を強化
+    if (canonical.paymentBeforeJuusetsu) {
+      neg = "high";
+    }
+
     const { min, max: baseMax } = entry.calcReview(amt);
-    const feeFactor = FEE_TYPE_FACTOR[entry.key] ?? 0.7;
-    const reviewMax = Math.min(amt, Math.round(baseMax * factor * feeFactor));
+    const reviewMax = Math.round(baseMax / 1000) * 1000;
     result.push({
       feeType:      entry.key,
       label:        entry.label,
@@ -493,72 +522,112 @@ function buildItemizedReview(
     }
   }
 
+  // 仲介手数料＋事務手数料の合算が家賃1ヶ月を超えていないか確認
+  const brokerEntry = result.find((r) => r.feeType === "agency_fee");
+  const adminEntry  = result.find((r) => r.feeType === "admin_fee");
+  const rentAmount  = canonical.amounts.rent;
+
+  if (brokerEntry && adminEntry && rentAmount && rentAmount > 0) {
+    const combined     = brokerEntry.inputAmount + adminEntry.inputAmount;
+    const legalCap     = Math.round(rentAmount * 1.1);
+    const overCombined = Math.max(0, combined - legalCap);
+    if (overCombined > 0) {
+      adminEntry.reviewMax = Math.min(
+        adminEntry.inputAmount,
+        adminEntry.reviewMax + overCombined
+      );
+      adminEntry.negotiability = "high";
+    }
+  }
+
   return result.length > 0 ? result : undefined;
 }
 
 // ── 交渉ライン ────────────────────────────────────────────────────────────────
 
 function buildNegotiationLines(canonical: InitialFeesCanonical): NegotiationLines | undefined {
-  const { amounts, marketContext } = canonical;
-  const hasGuaranteeSplit =
-    amounts.guaranteeBase !== undefined || amounts.guaranteeAdmin !== undefined;
-  const hasAnyAmount =
-    amounts.brokerFee    !== undefined ||
-    amounts.cleaningFee  !== undefined ||
-    amounts.lockFee      !== undefined ||
-    amounts.support24Fee !== undefined ||
-    amounts.disinfectFee !== undefined ||
-    amounts.adminFee     !== undefined ||
-    amounts.otherFees    !== undefined ||
-    hasGuaranteeSplit;
+  const { amounts } = canonical;
+  const items: NegotiationLineItem[] = [];
 
-  if (!hasAnyAmount) return undefined;
+  const voluntaryTargets: Array<{ key: keyof CanonicalAmounts; feeType: string; label: string }> = [
+    { key: "disinfectFee", feeType: "disinfection", label: "消毒・除菌代" },
+    { key: "support24Fee", feeType: "support_24h",  label: "24時間サポート" },
+    { key: "otherFees",    feeType: "other",        label: "その他任意費用" },
+  ];
 
-  const factor     = getMarketFactor(marketContext);
-  const rent       = amounts.rent;
-  const adminFee   = amounts.guaranteeAdmin ?? 0;
-  const baseExcess = amounts.guaranteeBase
-    ? computeBaseExcess(amounts.guaranteeBase, rent)
-    : 0;
-
-  const minItems: NegotiationLineItem[] = [];
-  if (adminFee > 0)
-    minItems.push({ feeType: "guarantee_admin", label: "委託保証料・保証関連事務費", amount: adminFee,              basis: "仲介手数料に含まれる性質の手続き費用" });
-  if (amounts.disinfectFee)
-    minItems.push({ feeType: "disinfection",   label: "消毒・除菌代",               amount: amounts.disinfectFee,  basis: "任意サービス" });
-  if (amounts.support24Fee)
-    minItems.push({ feeType: "support_24h",    label: "24時間サポートプラン",        amount: amounts.support24Fee,  basis: "任意加入" });
-  if (amounts.adminFee)
-    minItems.push({ feeType: "admin_fee",      label: "事務手数料・書類作成費",      amount: amounts.adminFee,      basis: "仲介手数料に含まれる業務" });
-  if (amounts.otherFees)
-    minItems.push({ feeType: "other",          label: "その他任意費用",              amount: amounts.otherFees,     basis: "任意費用" });
-
-  const realItems: NegotiationLineItem[] = [...minItems];
-  if (amounts.lockFee) {
-    const amt = Math.round(amounts.lockFee * factor * FEE_TYPE_FACTOR.key_exchange);
-    if (amt > 0) realItems.push({ feeType: "key_exchange", label: "鍵交換代", amount: amt, basis: "借主負担の根拠確認が必要" });
-  }
-  if (amounts.cleaningFee) {
-    const amt = Math.round(amounts.cleaningFee * factor * FEE_TYPE_FACTOR.cleaning);
-    if (amt > 0) realItems.push({ feeType: "cleaning", label: "清掃代", amount: amt, basis: "入居前清掃は貸主負担が原則" });
-  }
-  if (baseExcess > 0)
-    realItems.push({ feeType: "guarantee_base", label: "保証料（相場超過分）", amount: baseExcess, basis: "相場（連帯保証人なし50%）超過分" });
-
-  const aggrItems: NegotiationLineItem[] = [...realItems];
-  if (amounts.brokerFee) {
-    const overPaid = rent
-      ? Math.max(0, amounts.brokerFee - Math.round(rent * 0.55))
-      : Math.round(amounts.brokerFee * 0.5);
-    if (overPaid > 0)
-      aggrItems.push({ feeType: "agency_fee", label: "仲介手数料（超過分）", amount: overPaid, basis: "0.5ヶ月超の部分" });
+  for (const t of voluntaryTargets) {
+    const amt = amounts[t.key] as number | undefined;
+    if (!amt) continue;
+    if (isNotVoluntaryExplained(t.feeType, canonical.voluntaryExplainedFees)) {
+      items.push({ feeType: t.feeType, label: t.label, amount: amt, basis: "任意費用・説明なし" });
+    }
   }
 
-  const sum = (items: NegotiationLineItem[]) => items.reduce((s, i) => s + i.amount, 0);
+  if (amounts.lockFee && isNotVoluntaryExplained("key_exchange", canonical.voluntaryExplainedFees)) {
+    items.push({ feeType: "key_exchange", label: "鍵交換代", amount: amounts.lockFee, basis: "任意費用・説明なし" });
+  }
+
+  // 仲介手数料+事務手数料の合算超過分
+  if (amounts.rent) {
+    const brokerFee = amounts.brokerFee ?? 0;
+    const adminFee  = amounts.adminFee  ?? 0;
+    const combined  = brokerFee + adminFee;
+    const cap       = Math.round(amounts.rent * 1.1);
+    const over      = Math.max(0, combined - cap);
+    if (over > 0 && combined > 0) {
+      items.push({
+        feeType: "agency_combined",
+        label:   "仲介手数料＋事務手数料（合算超過分）",
+        amount:  Math.round(over / 1000) * 1000,
+        basis:   `合算¥${combined.toLocaleString("ja-JP")}が上限¥${cap.toLocaleString("ja-JP")}を超過`,
+      });
+    } else if (brokerFee > 0 && adminFee === 0) {
+      const overBroker = Math.max(0, brokerFee - cap);
+      if (overBroker > 0) {
+        items.push({
+          feeType: "agency_combined",
+          label:   "仲介手数料（上限超過分）",
+          amount:  Math.round(overBroker / 1000) * 1000,
+          basis:   "上限超過",
+        });
+      }
+    }
+  }
+
+  if (amounts.guaranteeAdmin) {
+    items.push({ feeType: "guarantee_admin", label: "保証会社事務手数料", amount: amounts.guaranteeAdmin, basis: "任意費用" });
+  }
+
+  // 保証会社初回保証料の相場超過分
+  if (amounts.guaranteeBase && amounts.rent) {
+    const excess = computeBaseExcess(amounts.guaranteeBase, amounts.rent);
+    if (excess > 0) {
+      items.push({
+        feeType: "guarantee_base",
+        label: "保証料（相場超過分・礼金相殺候補）",
+        amount: Math.round(excess / 1000) * 1000,
+        basis: "全保連相場（賃料50%）超過分",
+      });
+    }
+  }
+
+  // 礼金（削減・相殺の候補）
+  if (amounts.keyMoney && amounts.keyMoney > 0) {
+    items.push({
+      feeType: "key_money",
+      label: "礼金（削減交渉候補）",
+      amount: amounts.keyMoney,
+      basis: "法的根拠なし・交渉で削減可能",
+    });
+  }
+
+  if (items.length === 0) return undefined;
+  const total = Math.round(items.reduce((s, i) => s + i.amount, 0) / 1000) * 1000;
+
   return {
-    minimum:    { total: sum(minItems),  items: minItems  },
-    realistic:  { total: sum(realItems), items: realItems },
-    aggressive: { total: sum(aggrItems), items: aggrItems },
+    minimum:    { total, items },
+    realistic:  { total, items },
+    aggressive: { total, items },
   };
 }
 

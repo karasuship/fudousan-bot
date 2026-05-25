@@ -3,19 +3,72 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { DiagnosisResult } from "@/lib/types";
-import { MODE_CONFIG } from "@/lib/modes";
+import type { DiagnosisResult2, ContractTiming, FeeEntry } from "@/lib/types_v2";
 import CopyButton from "./CopyButton";
 
-// 本番ではDB保存＆ユーザー認証による管理を推奨
-// 現状はlocalStorageによるMVP実装
-const STORAGE_KEY = "rental_diagnosis_result_v1";
+const V2_STORAGE_KEY = "rental_diagnosis_v2";
+const V1_STORAGE_KEY = "rental_diagnosis_result_v1";
+
+interface V2StoredData {
+  result: DiagnosisResult2;
+  timing: ContractTiming;
+  stage: string;
+  fees: FeeEntry[];
+  savedAt: string;
+}
 
 interface Props {
   paid: boolean;
+  timing?: string;
+  stage?: string;
 }
 
-export default function SuccessClient({ paid }: Props) {
-  const [result, setResult] = useState<DiagnosisResult | null>(null);
+// ─── V2メール文面の組み立て ───────────────────────────────────────────────────
+
+function buildV2EmailText(result: DiagnosisResult2): string {
+  const lines: string[] = ["【費用に関するご確認のお願い】", ""];
+
+  if (result.emailStructure.yesNoQuestions.length > 0) {
+    lines.push("■ ご確認いただきたい点");
+    result.emailStructure.yesNoQuestions.forEach((q) => lines.push(`・${q}`));
+    lines.push("");
+  }
+
+  if (result.emailStructure.evidenceRequests.length > 0) {
+    lines.push("■ ご提示いただきたい資料");
+    result.emailStructure.evidenceRequests.forEach((r) => lines.push(`・${r}`));
+    lines.push("");
+  }
+
+  if (result.emailStructure.explanationRequests.length > 0) {
+    lines.push("■ ご説明いただきたい事項");
+    result.emailStructure.explanationRequests.forEach((r) => lines.push(`・${r}`));
+    lines.push("");
+  }
+
+  lines.push("以上について、書面にてご回答いただけますようお願いいたします。");
+  lines.push("");
+  lines.push("氏名：（お名前）");
+  lines.push("物件名・部屋番号：（物件情報）");
+
+  return lines.join("\n");
+}
+
+// ─── 業者返答パターン ─────────────────────────────────────────────────────────
+
+const RESPONSE_PATTERNS = [
+  { response: "「問題ありません」", action: "何が問題ないかの根拠を書面で求める" },
+  { response: "「弊社の規定です」", action: "規定の文書開示を求める" },
+  { response: "「一般的な費用です」", action: "算定根拠を書面で求める" },
+  { response: "「特約に書いてあります」", action: "借主負担にする根拠を求める" },
+  { response: "返信なし・無視", action: "送信記録を保存する。行政窓口への相談材料になる" },
+];
+
+// ─── コンポーネント ───────────────────────────────────────────────────────────
+
+export default function SuccessClient({ paid, timing: propTiming, stage: propStage }: Props) {
+  const [v2Data, setV2Data] = useState<V2StoredData | null>(null);
+  const [v1Result, setV1Result] = useState<DiagnosisResult | null>(null);
   const [storageError, setStorageError] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -23,26 +76,38 @@ export default function SuccessClient({ paid }: Props) {
     setMounted(true);
     if (!paid) return;
 
-    // localStorage から診断結果を復元
+    // V2データを優先して読み込む
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        setStorageError(true);
-        return;
+      const raw = localStorage.getItem(V2_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as V2StoredData;
+        if (parsed.result && parsed.timing) {
+          setV2Data(parsed);
+          return;
+        }
       }
+    } catch {
+      // V2読み込み失敗 → V1にフォールバック
+    }
+
+    // V1フォールバック
+    try {
+      const raw = localStorage.getItem(V1_STORAGE_KEY);
+      if (!raw) { setStorageError(true); return; }
       const parsed = JSON.parse(raw) as DiagnosisResult;
-      // 最低限の型チェック
-      if (!parsed.draftEmail || !parsed.overallRisk) {
-        setStorageError(true);
-        return;
-      }
-      setResult(parsed);
+      if (!parsed.draftEmail || !parsed.overallRisk) { setStorageError(true); return; }
+      setV1Result(parsed);
     } catch {
       setStorageError(true);
     }
   }, [paid]);
 
-  // SSRとhydrationのミスマッチを避けるため、mount前は何も表示しない
+  // timing/stage: props（Stripe metadata）→ localStorage → "unknown"
+  const resolvedTiming: string =
+    propTiming || v2Data?.timing || "unknown";
+  const isPreContract = resolvedTiming === "pre_contract";
+
+  // SSR hydrationミスマッチ防止
   if (!mounted) {
     return (
       <div className="text-center py-16">
@@ -75,11 +140,11 @@ export default function SuccessClient({ paid }: Props) {
     );
   }
 
-  // 支払い済みだが診断データが見つからない
-  if (storageError || !result) {
+  // 支払い済みだがデータなし
+  if (storageError || (!v2Data && !v1Result)) {
     return (
-      <div className="max-w-lg mx-auto">
-        <div className="bg-green-50 border border-green-200 rounded-xl p-5 mb-6">
+      <div className="max-w-lg mx-auto space-y-4">
+        <div className="bg-green-50 border border-green-200 rounded-xl p-5">
           <div className="flex items-center gap-2">
             <svg className="w-5 h-5 text-green-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -87,17 +152,15 @@ export default function SuccessClient({ paid }: Props) {
             <h1 className="font-semibold text-green-800">決済が完了しました</h1>
           </div>
         </div>
-
-        <div className="bg-amber-50 border border-amber-100 rounded-xl p-5 mb-6">
+        <div className="bg-amber-50 border border-amber-100 rounded-xl p-5">
           <p className="text-sm text-amber-700 leading-relaxed">
             <strong>メール文案の元データが見つかりませんでした。</strong><br />
-            お手数ですが、もう一度診断を行ってください。診断後にメール文案が表示されます。
+            お手数ですが、もう一度診断を行ってください。
           </p>
           <p className="text-xs text-amber-500 mt-2">
             ブラウザのデータが消えた可能性があります。ご不便をおかけして申し訳ありません。
           </p>
         </div>
-
         <Link
           href="/diagnosis"
           className="block text-center bg-slate-800 text-white text-sm font-medium py-3 rounded-xl hover:bg-slate-700 transition-colors"
@@ -108,50 +171,103 @@ export default function SuccessClient({ paid }: Props) {
     );
   }
 
-  // 支払い済み＆データあり → 全文表示
-  const modeCfg = result.mode ? MODE_CONFIG[result.mode] : null;
-  const emailTitle = modeCfg ? `${modeCfg.icon} ${modeCfg.label}メール` : "確認メール全文";
-  const emailDesc = modeCfg
-    ? `${modeCfg.label}に対応したメール文案です。○○の部分をご自身の情報に書き換えてご使用ください。`
-    : "今回の診断に対応した確認メール文案を表示しています。";
+  // メール文面の決定
+  const emailText = v2Data
+    ? buildV2EmailText(v2Data.result)
+    : (v1Result?.draftEmail ?? "");
 
   return (
-    <div className="space-y-6">
-      {/* 成功バナー */}
+    <div className="space-y-5">
+
+      {/* ブロック1：決済完了 */}
       <div className="bg-green-50 border border-green-200 rounded-xl p-5">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2">
           <svg className="w-5 h-5 text-green-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <h1 className="font-semibold text-green-800">決済が完了しました</h1>
         </div>
-        <p className="text-sm text-green-700">{emailDesc}</p>
       </div>
 
-      {/* メール全文 */}
+      {/* ブロック2：メール文面 */}
       <div>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-slate-700">{emailTitle}</h2>
-          <CopyButton text={result.draftEmail} label="全文コピー" />
+          <h2 className="text-sm font-semibold text-slate-700">確認メール全文</h2>
+          <CopyButton text={emailText} label="全文コピー" />
         </div>
         <div className="bg-slate-50 rounded-xl border border-slate-100 p-4">
           <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans leading-relaxed">
-            {result.draftEmail}
+            {emailText}
           </pre>
         </div>
         <p className="text-xs text-slate-400 mt-2">
-          ※「○○」の部分はご自身の氏名・物件情報に書き換えてからご使用ください。
+          ※「（お名前）」「（物件情報）」の部分をご自身の情報に書き換えてからご使用ください。
         </p>
       </div>
 
-      {/* 診断結果サマリー（参考） */}
-      <div className="bg-slate-50 rounded-xl border border-slate-100 p-4">
-        <p className="text-xs text-slate-500 font-medium mb-1">診断サマリー（参考）</p>
-        <p className="text-sm text-slate-600 leading-relaxed">{result.summary}</p>
-      </div>
+      {/* ブロック3：送る前に知っておくこと（契約前のみ） */}
+      {isPreContract && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+          <p className="text-xs text-blue-800 leading-relaxed">
+            このメールは費用の根拠確認を目的としています。<br />
+            送ることで記録が始まります。<br />
+            相手の返答がどうであれ、それ自体が記録になります。
+          </p>
+        </div>
+      )}
 
-      {/* ナビゲーション */}
-      <div className="flex flex-col sm:flex-row gap-3">
+      {/* ブロック4：業者の返答パターン（折りたたみ） */}
+      <details className="rounded-xl border border-slate-200 overflow-hidden">
+        <summary className="px-4 py-3 text-sm font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 select-none">
+          業者がこう返してきたら？
+        </summary>
+        <div className="px-4 pb-4 pt-2 space-y-2">
+          {RESPONSE_PATTERNS.map((p) => (
+            <div key={p.response} className="text-xs text-slate-600 leading-relaxed">
+              <span className="font-medium text-slate-700">{p.response}</span>
+              <span className="text-slate-400"> → </span>
+              {p.action}
+            </div>
+          ))}
+        </div>
+      </details>
+
+      {/* ブロック5：並行してできること（契約前のみ・折りたたみ） */}
+      {isPreContract && (
+        <details className="rounded-xl border border-slate-200 overflow-hidden">
+          <summary className="px-4 py-3 text-sm font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 select-none">
+            並行してできること
+          </summary>
+          <div className="px-4 pb-4 pt-2">
+            <p className="text-xs text-slate-600 leading-relaxed">
+              同じ物件を他の仲介業者経由で申し込める場合があります。
+              仲介手数料は業者によって異なり、0ヶ月分の業者も存在します。<br />
+              火災保険は貸主指定の最低補償内容を満たせば他社プランでも可能です。
+            </p>
+          </div>
+        </details>
+      )}
+
+      {/* ブロック6：解決しない場合（折りたたみ） */}
+      <details className="rounded-xl border border-slate-200 overflow-hidden">
+        <summary className="px-4 py-3 text-sm font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 select-none">
+          解決しない場合の相談窓口
+        </summary>
+        <div className="px-4 pb-4 pt-2 space-y-1.5">
+          <p className="text-xs text-slate-600">
+            <span className="font-medium">消費者ホットライン：</span>188（いやや）
+          </p>
+          <p className="text-xs text-slate-600">
+            <span className="font-medium">国土交通省 不動産相談窓口：</span>国土交通省の不動産業に関する相談窓口
+          </p>
+          <p className="text-xs text-slate-600">
+            <span className="font-medium">宅地建物取引業協会：</span>各都道府県の協会窓口（宅建協会）
+          </p>
+        </div>
+      </details>
+
+      {/* ブロック7：ナビゲーション */}
+      <div className="flex flex-col sm:flex-row gap-3 pt-1">
         <Link
           href="/diagnosis"
           className="flex-1 text-center text-sm text-slate-600 border border-slate-200 px-4 py-2.5 rounded-xl hover:bg-slate-50 transition-colors"
@@ -166,10 +282,6 @@ export default function SuccessClient({ paid }: Props) {
         </Link>
       </div>
 
-      {/* 免責 */}
-      <div className="bg-slate-50 rounded-lg border border-slate-100 p-4">
-        <p className="text-xs text-slate-400 leading-relaxed">{result.disclaimer}</p>
-      </div>
     </div>
   );
 }

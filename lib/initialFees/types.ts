@@ -51,4 +51,8 @@ export interface InitialFeesCanonical {
   amounts: CanonicalAmounts;
   marketContext: MarketContext;
   freeText?: string;
+  // 任意性の説明があった費用ID一覧（含まれない費用は「説明なし」扱い）
+  voluntaryExplainedFees: string[];
+  // 重説・金銭受領の順序逆転フラグ（重説前に支払いが発生した場合 true）
+  paymentBeforeJuusetsu: boolean;
 }

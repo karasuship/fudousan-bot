@@ -4,7 +4,17 @@ import Stripe from "stripe";
 // 参考: https://stripe.com/docs/webhooks
 // MVP段階では session_id を使ったサーバーサイド確認（verify-checkout-session）で代替しています
 
-export async function POST() {
+export async function POST(request: Request) {
+  let timing = "";
+  let stage = "";
+  try {
+    const body = await request.json();
+    timing = body.timing ?? "";
+    stage = body.stage ?? "";
+  } catch {
+    // body が空でも続行
+  }
+
   const secretKey = process.env.STRIPE_SECRET_KEY;
 
   if (!secretKey) {
@@ -52,6 +62,7 @@ export async function POST() {
         },
       ],
       mode: "payment",
+      metadata: { timing, stage },
       // {CHECKOUT_SESSION_ID} は Stripe が自動で session ID に置換します
       success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${baseUrl}/cancel`,

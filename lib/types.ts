@@ -21,7 +21,7 @@ export interface InitialFeesInput {
   monthlyRent?: number;
   depositAmount?: number;
   keyMoneyAmount?: number;
-  feeAmounts?: Partial<Record<"agency_fee" | "key_exchange" | "cleaning" | "guarantor" | "disinfection" | "support_24h" | "admin_fee" | "other", number>>;
+  feeAmounts?: Partial<Record<"agency_fee" | "key_exchange" | "cleaning" | "guarantor" | "disinfection" | "support_24h" | "admin_fee" | "fire_insurance" | "other", number>>;
   guarantorStatus?: "has" | "none" | "unknown";
   guaranteeBaseFee?: number;
   guaranteeAdminFee?: number;
@@ -283,3 +283,65 @@ export type FeeType =
   | "support_24h"
   | "admin_fee"
   | "other";
+
+// ─── フェーズ1/2 診断型定義 ─────────────────────────────────────────────────
+
+export type UserPhase = 'A' | 'B' | 'C';
+
+export type FeeGroup = 'main' | 'sub' | 'card';
+
+export type FeeId =
+  | 'cleaning'
+  | 'support24'
+  | 'key'
+  | 'adminFee'
+  | 'guarantee'
+  | 'insurance'
+  | 'brokerage'
+  | 'keyMoney'
+  | 'other';
+
+export interface Phase1Answers {
+  hasSigned: boolean;
+  hasPaid: boolean;
+  selectedFees: FeeId[];
+  voluntaryExplained: 'yes' | 'no' | 'unclear';
+  deniedIfRefused: 'yes' | 'no' | 'unknown';
+  documentedIn:
+    | 'estimate_only'
+    | 'contract_or_juusetsu'
+    | 'nowhere'
+    | 'unknown';
+}
+
+export interface RiskScore {
+  procedureRisk: number;
+  explanationRisk: number;
+  pressureRisk: number;
+  recoveryScore: number;
+}
+
+export type RecoveryMethod = 'WITHHOLD' | 'OFFSET' | 'REFUND' | 'ESCALATE';
+
+export interface Phase1Result {
+  userPhase: UserPhase;
+  riskScore: RiskScore;
+  strongPoints: FeeId[];
+  weakPoints: FeeId[];
+  verdict: 'strong' | 'moderate' | 'weak';
+  recoveryMethod: RecoveryMethod;
+  estimatedAmount: number;
+  nextAction: string;
+}
+
+export interface Phase2Answers {
+  feeAmounts: Partial<Record<FeeId, number>>;
+  opponentResponse:
+    | 'nothing'
+    | 'insisting'
+    | 'internal_rule'
+    | 'ignoring'
+    | 'contract_based';
+  hasEvidence: 'email_or_line' | 'recording' | 'none';
+  preferredSettlement: 'withhold' | 'refund' | 'offset' | 'free_rent';
+}

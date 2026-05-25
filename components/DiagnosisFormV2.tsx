@@ -29,6 +29,16 @@ export default function DiagnosisFormV2() {
       });
       if (!res.ok) throw new Error("診断に失敗しました");
       const result: DiagnosisResult2 = await res.json();
+      localStorage.setItem(
+        "rental_diagnosis_v2",
+        JSON.stringify({
+          result,
+          timing: v2Input.timing,
+          stage: v2Input.stage,
+          fees: v2Input.fees,
+          savedAt: new Date().toISOString(),
+        })
+      );
       setV2Result(result);
     } catch (e) {
       setV2Error(e instanceof Error ? e.message : "診断に失敗しました");

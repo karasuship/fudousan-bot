@@ -78,5 +78,7 @@ export function normalize(input: InitialFeesInput): InitialFeesCanonical {
     amounts:      normalizeAmounts(input),
     marketContext: normalizeMarketContext(input.marketContext),
     freeText:     input.freeText,
+    voluntaryExplainedFees: (input as any).voluntaryExplainedFees ?? [],
+    paymentBeforeJuusetsu:  (input as any).paymentBeforeJuusetsu  ?? false,
   };
 }
