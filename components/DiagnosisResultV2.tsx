@@ -78,7 +78,7 @@ const BUCKETS: Bucket[] = [
 
 const DIFFICULTY: Record<string, { stars: number; label: string; description: string }> = {
   delete: {
-    stars: 1,
+    stars: 3,
     label: "交渉しやすい",
     description: "任意費用のため削除を求めやすい",
   },
@@ -88,17 +88,17 @@ const DIFFICULTY: Record<string, { stars: number; label: string; description: st
     description: "フリーレントまたは総額調整の余地がある",
   },
   admin_check: {
-    stars: 3,
+    stars: 1,
     label: "根拠確認が先",
     description: "説明を求めた上で次の手を判断する",
   },
   confirm: {
-    stars: 3,
+    stars: 1,
     label: "根拠確認が先",
     description: "資料・説明の確認から始める",
   },
   record: {
-    stars: 4,
+    stars: 0,
     label: "払う根拠あり",
     description: "記録を保全する",
   },
@@ -213,10 +213,10 @@ export default function DiagnosisResultV2({ result, timing, stage, fees, onBack 
                         <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full mb-0.5 ${bucket.badgeClass}`}>
                           {s.label}
                         </span>
-                        {diff && (
+                        {diff && diff.stars > 0 && (
                           <div className="flex items-center gap-1 mt-0.5 mb-0.5">
                             <span className="text-xs text-slate-500">
-                              {"★".repeat(diff.stars)}{"☆".repeat(4 - diff.stars)}
+                              {"★".repeat(diff.stars)}{"☆".repeat(3 - diff.stars)}
                             </span>
                             <span className="text-xs text-slate-500">
                               {diff.label}
@@ -239,15 +239,6 @@ export default function DiagnosisResultV2({ result, timing, stage, fees, onBack 
         })}
       </div>
 
-      {/* 5. 確認・調整の対象合計金額 */}
-      {result.freeRentEstimate != null && (
-        <div className="rounded-xl bg-blue-50 border border-blue-200 px-4 py-3">
-          <p className="text-sm text-blue-800">
-            確認・調整の対象合計金額（目安）
-            <span className="font-semibold ml-1">{fmt(result.freeRentEstimate)}</span>
-          </p>
-        </div>
-      )}
 
       {/* 6. 減額警告 */}
       {result.discountWarning && (

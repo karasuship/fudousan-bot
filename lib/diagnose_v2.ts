@@ -219,21 +219,6 @@ export function detectFeeIssues(fees: FeeEntry[]): Issue2[] {
             evidenceRequest: null,
             explanationRequest: `${label}が契約の必須条件である根拠を書面でご説明ください。`,
           });
-        } else if (d.deniedIfRefused === "nuance") {
-          issues.push({
-            id: `${fee.feeId}_nuance`,
-            feeId: fee.feeId,
-            axis: "A",
-            layer: "voluntary",
-            severity: "medium",
-            label: `${label}：断りにくい雰囲気があった`,
-            axisAText: "断ることへの心理的障壁を作ることは、借主の選択機会を実質的に奪っている可能性があります",
-            axisBText: null,
-            strategy: "delete",
-            yesNoQuestion: `${label}を断りにくい雰囲気を作られましたか？`,
-            evidenceRequest: null,
-            explanationRequest: `${label}は任意サービスであることを確認してください。`,
-          });
         }
       }
     }
