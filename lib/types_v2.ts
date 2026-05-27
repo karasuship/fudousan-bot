@@ -205,13 +205,6 @@ export interface KeyMoneyDetail {
 export interface PreContractDetail {
   kind: "pre_contract";  // 契約前用であることの識別子
   feeId: string;
-  // 仲介手数料用（2問）
-  amountMonths?: "half" | "one" | "over" | "unknown";
-  principleExplained?: "yes" | "no" | "unknown";
-  // 鍵交換用（必須と言われたかを区別）
-  voluntaryExplained?: "yes" | "mandatory" | "no" | "unknown";
-  // クリーニング・任意費目・保証・火災 共通（説明を受けたか）
-  explained?: "yes" | "no" | "unknown";
 }
 
 export type FeeDetail =
@@ -288,6 +281,22 @@ export interface AgentResponse {
   >;
 }
 
+// ─── 契約前のコンテキスト ────────────────────────────────────────────────────
+// 契約前フローで取得するユーザーの状況。
+// 費目ごとではなくフォーム全体で1セット。
+export interface PreContractContext {
+  monthlyRent: number;
+  contractMonth: "busy" | "off" | "normal";
+  // busy: 1〜3月（繁忙期）
+  // off:  4〜8月（閑散期）
+  // normal: 9〜12月（通常期）
+  applicationStatus: "before_apply" | "applied_waiting" | "approved";
+  // before_apply: まだ申込んでいない
+  // applied_waiting: 申込済み・審査待ち
+  // approved: 審査通過済み・見積もり受領済み
+  otherCompanyComparison: "yes" | "no" | "planning" | null;
+}
+
 // ─── 診断入力（メイン） ──────────────────────────────────────────────────────
 
 export interface DiagnosisInput2 {
@@ -311,6 +320,9 @@ export interface DiagnosisInput2 {
 
   /** 業者対応状況（確認済みの場合） */
   agentResponse: AgentResponse | null;
+
+  /** 契約前フローのコンテキスト（契約前のみ） */
+  preContractContext?: PreContractContext;
 
   /** メールトーン */
   emailTone: "polite" | "firm" | "factual";
