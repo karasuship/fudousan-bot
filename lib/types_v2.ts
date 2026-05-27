@@ -199,6 +199,21 @@ export interface KeyMoneyDetail {
   negotiationAttempt: "accepted" | "rejected" | "not_tried" | "didnt_know" | null;
 }
 
+// ─── 契約前専用 detail ──────────────────────────────────────────────────────
+// 契約前（見積もり段階）の質問の答えを保存する。
+// 各費目1〜2問のシンプルな構造。契約後用とは完全に分離。
+export interface PreContractDetail {
+  kind: "pre_contract";  // 契約前用であることの識別子
+  feeId: string;
+  // 仲介手数料用（2問）
+  amountMonths?: "half" | "one" | "over" | "unknown";
+  principleExplained?: "yes" | "no" | "unknown";
+  // 鍵交換用（必須と言われたかを区別）
+  voluntaryExplained?: "yes" | "mandatory" | "no" | "unknown";
+  // クリーニング・任意費目・保証・火災 共通（説明を受けたか）
+  explained?: "yes" | "no" | "unknown";
+}
+
 export type FeeDetail =
   | AgencyFeeDetail
   | KeyExchangeDetail
@@ -208,7 +223,8 @@ export type FeeDetail =
   | FireInsuranceDetail
   | LabelMismatchDetail
   | SpecialClauseDetail
-  | KeyMoneyDetail;
+  | KeyMoneyDetail
+  | PreContractDetail;
 
 // ─── 費目エントリ ────────────────────────────────────────────────────────────
 
