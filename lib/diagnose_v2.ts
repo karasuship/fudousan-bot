@@ -740,3 +740,176 @@ export function diagnoseV2(input: DiagnosisInput2): DiagnosisResult2 {
     emailStructure,
   };
 }
+
+// ─── 契約前診断ロジック ──────────────────────────────────────────────────────
+
+export function detectPreContractIssues(fees: FeeEntry[]): Issue2[] {
+  const issues: Issue2[] = [];
+
+  for (const fee of fees) {
+    const d = fee.detail;
+    // 型ガード：契約前用 detail のみ処理
+    if (!d || !("kind" in d) || d.kind !== "pre_contract") continue;
+
+    const label = FEE_LABEL[fee.feeId] ?? fee.feeId;
+
+    // ── 仲介手数料 ──
+    if (fee.feeId === "agency_fee") {
+      if (d.amountMonths === "over") {
+        issues.push({
+          id: "pre_agency_over", feeId: fee.feeId, axis: "A", layer: "evidence",
+          severity: "high", label: `${label}：契約前確認`, strategy: "free_rent",
+          axisAText: "仲介手数料が1ヶ月分を超えています。借主・貸主合算での上限は1ヶ月分です。",
+          axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+          explanationRequest: "1ヶ月分を超える根拠と、貸主からの受領の有無をご説明ください。",
+        });
+      }
+      if (d.amountMonths !== "half" && d.principleExplained === "no") {
+        issues.push({
+          id: "pre_agency_principle", feeId: fee.feeId, axis: "A", layer: "voluntary",
+          severity: "high", label: `${label}：契約前確認`, strategy: "free_rent",
+          axisAText: "仲介手数料の原則が0.5ヶ月分であるとの説明を受けていません。",
+          axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+          explanationRequest: "原則0.5ヶ月分との説明がないまま1ヶ月分とする根拠をご説明ください。他社では0.5ヶ月分や、貸主負担で借主0円の場合もあります。",
+        });
+      }
+      if (d.amountMonths !== "half" && d.principleExplained === "unknown") {
+        issues.push({
+          id: "pre_agency_principle", feeId: fee.feeId, axis: "A", layer: "voluntary",
+          severity: "medium", label: `${label}：契約前確認`, strategy: "free_rent",
+          axisAText: "仲介手数料の原則が0.5ヶ月分であるとの説明を受けていません。",
+          axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+          explanationRequest: "原則0.5ヶ月分との説明がないまま1ヶ月分とする根拠をご説明ください。他社では0.5ヶ月分や、貸主負担で借主0円の場合もあります。",
+        });
+      }
+    }
+
+    // ── 鍵交換代 ──
+    if (fee.feeId === "key_exchange") {
+      if (d.voluntaryExplained === "mandatory") {
+        issues.push({
+          id: "pre_key_mandatory", feeId: fee.feeId, axis: "A", layer: "voluntary",
+          severity: "high", label: `${label}：契約前確認`, strategy: "free_rent",
+          axisAText: "鍵交換は本来、前入居者退去後に貸主が行うべき費用です。必須とする根拠の説明が必要です。",
+          axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+          explanationRequest: "鍵交換を借主負担・必須とする根拠をご説明ください。",
+        });
+      }
+      if (d.voluntaryExplained === "no") {
+        issues.push({
+          id: "pre_key_no_explain", feeId: fee.feeId, axis: "A", layer: "voluntary",
+          severity: "high", label: `${label}：契約前確認`, strategy: "free_rent",
+          axisAText: "鍵交換は本来貸主負担とされる費用ですが、借主負担とする説明を受けていません。",
+          axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+          explanationRequest: "借主負担とする根拠をご説明ください。削除またはフリーレント転換もご検討ください。",
+        });
+      }
+      if (d.voluntaryExplained === "unknown") {
+        issues.push({
+          id: "pre_key_no_explain", feeId: fee.feeId, axis: "A", layer: "voluntary",
+          severity: "medium", label: `${label}：契約前確認`, strategy: "free_rent",
+          axisAText: "鍵交換は本来貸主負担とされる費用ですが、借主負担とする説明を受けていません。",
+          axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+          explanationRequest: "借主負担とする根拠をご説明ください。削除またはフリーレント転換もご検討ください。",
+        });
+      }
+    }
+
+    // ── クリーニング費 ──
+    if (fee.feeId === "cleaning") {
+      if (d.explained === "no") {
+        issues.push({
+          id: "pre_cleaning_no_explain", feeId: fee.feeId, axis: "A", layer: "voluntary",
+          severity: "high", label: `${label}：契約前確認`, strategy: "free_rent",
+          axisAText: "クリーニング費は国土交通省のガイドライン上、本来貸主負担が原則です。借主負担とする理由の説明を受けていません。",
+          axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+          explanationRequest: "借主負担とする根拠をご説明ください。削除またはフリーレント転換もご検討ください。",
+        });
+      }
+      if (d.explained === "unknown") {
+        issues.push({
+          id: "pre_cleaning_no_explain", feeId: fee.feeId, axis: "A", layer: "voluntary",
+          severity: "medium", label: `${label}：契約前確認`, strategy: "free_rent",
+          axisAText: "クリーニング費は国土交通省のガイドライン上、本来貸主負担が原則です。借主負担とする理由の説明を受けていません。",
+          axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+          explanationRequest: "借主負担とする根拠をご説明ください。削除またはフリーレント転換もご検討ください。",
+        });
+      }
+    }
+
+    // ── 消毒・サポート・書類作成費 ──
+    if (fee.feeId === "disinfection" || fee.feeId === "support_24h" || fee.feeId === "admin_fee") {
+      const axisAMap: Record<string, string> = {
+        disinfection: "消毒・抗菌処理は任意サービスです。断っても入居を拒否できません。任意であることの説明を受けていません。",
+        support_24h:  "24時間サポートは任意サービスです。火災保険の付帯サービスと重複する可能性があります。任意であることの説明を受けていません。",
+        admin_fee:    "書類作成・事務手続きは宅建業者の基本業務です。仲介手数料と二重請求の可能性があります。",
+      };
+      if (d.explained === "no") {
+        issues.push({
+          id: `pre_${fee.feeId}_no_explain`, feeId: fee.feeId, axis: "A", layer: "voluntary",
+          severity: "high", label: `${label}：契約前確認`, strategy: "delete",
+          axisAText: axisAMap[fee.feeId],
+          axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+          explanationRequest: "この費用が任意であること、断れることをご説明ください。不要であれば削除をお願いします。",
+        });
+      }
+      if (d.explained === "unknown") {
+        issues.push({
+          id: `pre_${fee.feeId}_no_explain`, feeId: fee.feeId, axis: "A", layer: "voluntary",
+          severity: "medium", label: `${label}：契約前確認`, strategy: "delete",
+          axisAText: axisAMap[fee.feeId],
+          axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+          explanationRequest: "この費用が任意であること、断れることをご説明ください。不要であれば削除をお願いします。",
+        });
+      }
+      if (d.explained === "yes") {
+        issues.push({
+          id: `pre_${fee.feeId}_optional`, feeId: fee.feeId, axis: "A", layer: "voluntary",
+          severity: "medium", label: `${label}：契約前確認`, strategy: "delete",
+          axisAText: `${label}は任意サービスです。不要であれば削除できます。`,
+          axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+          explanationRequest: "不要のため削除をお願いできますでしょうか。",
+        });
+      }
+    }
+
+    // ── 保証会社費用 ──
+    if (fee.feeId === "guarantor") {
+      if (d.explained === "no" || d.explained === "unknown") {
+        issues.push({
+          id: "pre_guarantor_choice", feeId: fee.feeId, axis: "A", layer: "source",
+          severity: "medium", label: `${label}：契約前確認`, strategy: "confirm",
+          axisAText: "保証会社を複数社から選べることの説明を受けていません。",
+          axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+          explanationRequest: "利用できる保証会社の選択肢と、保証会社・管理会社・仲介会社のグループ関係の有無をご説明ください。",
+        });
+      }
+    }
+
+    // ── 火災保険料 ──
+    if (fee.feeId === "fire_insurance") {
+      if (d.explained === "no" || d.explained === "unknown") {
+        issues.push({
+          id: "pre_fire_other_plan", feeId: fee.feeId, axis: "A", layer: "source",
+          severity: "medium", label: `${label}：契約前確認`, strategy: "free_rent",
+          axisAText: "火災保険は本来、借主が保険会社・プランを選べます。他社プランでも加入できることの説明を受けていません。",
+          axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+          explanationRequest: "貸主が求める最低限の補償内容をご提示ください。自分で保険を選ぶことを検討します。",
+        });
+      }
+    }
+
+    // ── 礼金 ──
+    if (fee.feeId === "key_money" && fee.amount != null && fee.amount > 0) {
+      issues.push({
+        id: "pre_key_money", feeId: fee.feeId, axis: "A", layer: "voluntary",
+        severity: "low", label: `${label}：契約前確認`, strategy: "free_rent",
+        axisAText: "礼金は慣行であり法的義務ではありません。",
+        axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+        explanationRequest: "礼金の調整、またはフリーレント・他費用との総額調整をご検討いただけますでしょうか。",
+      });
+    }
+  }
+
+  return issues;
+}
