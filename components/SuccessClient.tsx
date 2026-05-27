@@ -23,37 +23,6 @@ interface Props {
   stage?: string;
 }
 
-// ─── V2メール文面の組み立て ───────────────────────────────────────────────────
-
-function buildV2EmailText(result: DiagnosisResult2): string {
-  const lines: string[] = ["【費用に関するご確認のお願い】", ""];
-
-  if (result.emailStructure.yesNoQuestions.length > 0) {
-    lines.push("■ ご確認いただきたい点");
-    result.emailStructure.yesNoQuestions.forEach((q) => lines.push(`・${q}`));
-    lines.push("");
-  }
-
-  if (result.emailStructure.evidenceRequests.length > 0) {
-    lines.push("■ ご提示いただきたい資料");
-    result.emailStructure.evidenceRequests.forEach((r) => lines.push(`・${r}`));
-    lines.push("");
-  }
-
-  if (result.emailStructure.explanationRequests.length > 0) {
-    lines.push("■ ご説明いただきたい事項");
-    result.emailStructure.explanationRequests.forEach((r) => lines.push(`・${r}`));
-    lines.push("");
-  }
-
-  lines.push("以上について、書面にてご回答いただけますようお願いいたします。");
-  lines.push("");
-  lines.push("氏名：（お名前）");
-  lines.push("物件名・部屋番号：（物件情報）");
-
-  return lines.join("\n");
-}
-
 // ─── 業者返答パターン ─────────────────────────────────────────────────────────
 
 const RESPONSE_PATTERNS = [
@@ -71,6 +40,9 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
   const [v1Result, setV1Result] = useState<DiagnosisResult | null>(null);
   const [storageError, setStorageError] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [emailText, setEmailText] = useState<string>("");
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -97,10 +69,34 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
       const parsed = JSON.parse(raw) as DiagnosisResult;
       if (!parsed.draftEmail || !parsed.overallRisk) { setStorageError(true); return; }
       setV1Result(parsed);
+      setEmailText(parsed.draftEmail ?? "");
     } catch {
       setStorageError(true);
     }
   }, [paid]);
+
+  useEffect(() => {
+    if (!v2Data) return;
+    setEmailLoading(true);
+    fetch("/api/generate-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        result: v2Data.result,
+        timing: v2Data.timing,
+        stage: v2Data.stage,
+        fees: v2Data.fees,
+        emailTone: "polite",
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.draftEmail) setEmailText(data.draftEmail);
+        else setEmailError("メールの生成に失敗しました");
+      })
+      .catch(() => setEmailError("メールの生成に失敗しました"))
+      .finally(() => setEmailLoading(false));
+  }, [v2Data]);
 
   // timing/stage: props（Stripe metadata）→ localStorage → "unknown"
   const resolvedTiming: string =
@@ -171,11 +167,6 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
     );
   }
 
-  // メール文面の決定
-  const emailText = v2Data
-    ? buildV2EmailText(v2Data.result)
-    : (v1Result?.draftEmail ?? "");
-
   return (
     <div className="space-y-5">
 
@@ -195,10 +186,16 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
           <h2 className="text-sm font-semibold text-slate-700">確認メール全文</h2>
           <CopyButton text={emailText} label="全文コピー" />
         </div>
-        <div className="bg-slate-50 rounded-xl border border-slate-100 p-4">
-          <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans leading-relaxed">
-            {emailText}
-          </pre>
+        <div className="bg-slate-50 rounded-xl border border-slate-100 p-4 min-h-[80px] flex items-start">
+          {emailLoading ? (
+            <p className="text-sm text-slate-500">メールを生成中...</p>
+          ) : emailError ? (
+            <p className="text-sm text-red-500">{emailError}</p>
+          ) : (
+            <pre className="text-sm text-slate-600 whitespace-pre-wrap font-sans leading-relaxed">
+              {emailText}
+            </pre>
+          )}
         </div>
         <p className="text-xs text-slate-400 mt-2">
           ※「（お名前）」「（物件情報）」の部分をご自身の情報に書き換えてからご使用ください。
