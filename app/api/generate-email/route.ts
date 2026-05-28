@@ -19,6 +19,12 @@ interface GenerateEmailRequest {
   stage: string;
   fees: FeeEntry[];
   emailTone?: "polite" | "firm" | "factual";
+  preContractContext?: {
+    monthlyRent: number;
+    contractMonth: "busy" | "off" | "normal";
+    applicationStatus: "before_apply" | "applied_waiting" | "approved";
+    otherCompanyComparison: "yes" | "no" | "planning" | null;
+  };
 }
 
 // ─── Step1：費目別固定テキスト ─────────────────────────────────────────────────
@@ -259,12 +265,253 @@ ${adjustLine}${feeContent}
 部屋番号：〇〇`;
 }
 
+// ─── 契約前専用メール生成 ──────────────────────────────────────────────────────
+
+function buildPreContractEmail(
+  fees: FeeEntry[],
+  context: GenerateEmailRequest["preContractContext"]
+): string {
+  const feeIds = new Set(fees.map((f) => f.feeId));
+  const blocks: string[] = [];
+
+  if (feeIds.has("agency_fee")) {
+    blocks.push(`【仲介手数料について】
+
+ご請求は賃料1ヶ月分とのことですが、
+宅地建物取引業法の原則は0.5ヶ月分と
+伺っております。0.5ヶ月分にご調整いただく
+ことは可能でしょうか。
+あわせて貸主様からの広告料・手数料の
+お受領状況もご教示ください。`);
+  }
+
+  if (feeIds.has("key_exchange")) {
+    blocks.push(`【鍵交換代について】
+
+本来、前入居者退去後に貸主様のご負担で
+行われる費用と理解しております。
+こちらのご対応について、貸主様にご相談いただく
+ことは可能でしょうか。
+
+あわせて、前入居者の退去日と、新品交換で
+あることが確認できる資料についても
+ご教示いただけますと幸いです。`);
+  }
+
+  if (feeIds.has("cleaning")) {
+    blocks.push(`【クリーニング費について】
+
+入居前清掃・退去時清掃のいずれの費用かを
+ご教示ください。
+
+入居前清掃の場合、本来貸主様のご負担と
+されることが多く、こちらのご対応について
+貸主様にご相談いただけますでしょうか。
+退去時清掃の場合、敷金からの清算との
+二重負担にならないかもご確認いただけますと
+幸いです。`);
+  }
+
+  if (feeIds.has("disinfection")) {
+    blocks.push(`【消毒・抗菌処理費について】
+
+こちらは任意のサービスかと存じます。
+今回はお断りすることは可能でしょうか。
+
+契約上必須とのご判断である場合は、
+それが貸主様のご意向か御社のご規定かを
+ご教示ください。あわせて実施日・実施業者・
+処理内容もご提示いただけますと幸いです。`);
+  }
+
+  if (feeIds.has("support_24h")) {
+    blocks.push(`【24時間サポートについて】
+
+こちらも任意のサービスかと存じます。
+お断りすることは可能でしょうか。
+火災保険の付帯サービスと内容が重複する
+可能性もあり、不要かと考えております。
+
+契約上必須とのご判断である場合は、
+貸主様のご意向か御社のご規定か、
+あわせてサービス内容・契約期間・運営会社を
+ご教示いただけますと幸いです。`);
+  }
+
+  if (feeIds.has("admin_fee")) {
+    blocks.push(`【書類作成費（事務手数料）について】
+
+こちらは仲介業務における事務手続きへの
+対価かと存じます。仲介手数料に含まれる
+ものとして、削除いただくことは可能でしょうか。
+別途のご請求とされる場合、その内容と
+根拠をご教示いただけますと幸いです。`);
+  }
+
+  if (feeIds.has("guarantor")) {
+    blocks.push(`【保証会社費用について】
+
+ご利用可能な保証会社の選択肢が
+ございましたらご教示ください。
+あわせて、保証会社と管理会社・仲介会社の
+グループ関係の有無もご確認いただけますと
+幸いです。`);
+  }
+
+  if (feeIds.has("fire_insurance")) {
+    blocks.push(`【火災保険料について】
+
+火災保険は他社で加入予定です。
+貸主様が求められる最低限の補償内容
+（補償額・特約等）をご教示ください。`);
+  }
+
+  if (feeIds.has("key_money")) {
+    const isComparing =
+      context?.otherCompanyComparison === "yes" ||
+      context?.otherCompanyComparison === "planning";
+    if (isComparing) {
+      blocks.push(`【礼金について】
+
+慣行のご請求と理解しております。
+現在、他社様からも同等条件のご案内を
+受けている状況です。ご調整、または
+フリーレント転換などで総額のご相談を
+いただけますでしょうか。`);
+    } else {
+      blocks.push(`【礼金について】
+
+慣行のご請求と理解しております。
+ご調整、またはフリーレント転換などで
+総額のご相談をいただけますでしょうか。`);
+    }
+  }
+
+  const feeContent = blocks.join("\n\n");
+
+  return `件名：初期費用のお見積もりについてのご確認
+
+ご担当者様
+
+お世話になっております。
+先日はお見積もりをお送りいただき、
+ありがとうございました。
+
+物件は大変気に入っており、
+ぜひ前向きに進めさせていただきたく存じます。
+
+つきましては、お見積もりの内訳について
+何点かご確認させていただきたい部分が
+ございますので、ご教示いただけますと幸いです。
+
+${feeContent}
+
+ご回答にあたり、貸主様のご意向の
+ご確認が必要な事項がございましたら、
+ご確認のうえご返信いただけますと幸いです。
+
+ご回答を確認のうえ、速やかに契約手続きに
+進めさせていただきたく存じます。
+ご検討のほど、何卒よろしくお願いいたします。
+
+[お名前]`;
+}
+
+// ─── 契約前専用解説生成 ──────────────────────────────────────────────────────
+
+function buildPreContractExplanation(
+  fees: FeeEntry[],
+  context: GenerateEmailRequest["preContractContext"]
+): string {
+  const parts: string[] = [];
+
+  // 全体戦略
+  const appStatus = context?.applicationStatus;
+  if (appStatus === "before_apply") {
+    parts.push("あなたは現在申込前の段階です。これは交渉において最も強いタイミングです。業者はあなたを他社に取られると、仲介手数料も貸主からの広告料も全て失います。");
+  } else if (appStatus === "applied_waiting") {
+    parts.push("申込済みの段階ですが、署名前であれば交渉の余地があります。業者にとっても契約を失うより、一部費用を調整して成約させる方が合理的です。");
+  } else if (appStatus === "approved") {
+    parts.push("契約直前の段階ですが、署名前であれば確認・交渉はまだ可能です。丁寧かつ具体的な確認が最も有効です。");
+  }
+
+  const comparison = context?.otherCompanyComparison;
+  if (comparison === "yes" || comparison === "planning") {
+    parts.push("他社からも同じ物件を取れる可能性があります。業者はこれを知ると、逃したくないという動機が生まれます。これが交渉の主なカードです。");
+  }
+
+  if (context?.contractMonth === "off") {
+    parts.push("閑散期（4〜8月）は物件が動きにくく、業者は成約を優先します。削除交渉が通りやすい時期です。");
+  }
+
+  parts.push("");
+
+  // 費目ごとの意図
+  const feeIds = new Set(fees.map((f) => f.feeId));
+  const feeExplanations: Partial<Record<string, string>> = {
+    agency_fee:    "宅建業法の原則（0.5ヶ月）を外部根拠として使っています。貸主からの広告料受領を確認したのは、受領があれば借主負担をゼロにできる可能性があるためです。",
+    key_exchange:  "本来貸主負担であることを示しつつ、貸主への相談を促しています。資料の提示を求めたのは、実施されていない可能性があるためです。業者が資料を出せなければ、次のメールで実態を追えます。",
+    cleaning:      "入居前か退去時かを先に確認しています。答えによって次の手が変わります。退去時なら敷金との二重、入居前なら貸主負担の問題として追えます。",
+    disinfection:  "任意サービスであることを前提に、断れるかを問う形にしました。必須と言う場合、貸主の意向か業者規定かを次のメールで確認できます。多くの場合、根拠を出せず取り下げになります。",
+    support_24h:   "任意サービスです。火災保険との重複を示したことで、業者は内容の説明コストが生じます。必須と言う場合、サービスの実態を次のメールで深掘りできます。",
+    admin_fee:     "仲介手数料に含まれるべき業務であることを示唆しています。業者が『別途』と言えば根拠を追えます。『含まれる』と言えば二重なので削除できます。",
+    guarantor:     "保証会社の選択肢とグループ関係を確認しています。グループ会社なら利益相反の問題として次のメールで追えます。",
+    fire_insurance:"火災保険は借主が自由に選べる権利があります。他社で入ると宣言し、必要な補償内容を聞き出すだけでシンプルです。回答を元に相場の安いプランを選べます。",
+    key_money:     "法的義務のない慣行費用です。他社の存在を匂わせることで、業者が逃したくないというプレッシャーをかけています。フリーレント転換で総額調整に持ち込むことも有効です。",
+  };
+
+  for (const feeId of feeIds) {
+    const explanation = feeExplanations[feeId];
+    if (explanation) {
+      const label = FEE_LABEL[feeId] ?? feeId;
+      parts.push(`【${label}】\n${explanation}`);
+    }
+  }
+
+  parts.push("");
+  parts.push("このメールは『払わない』と言っていません。『根拠を確認してから決める』という誠実な借主の立場を取っています。根拠のない費用は取り下げる方が、業者にとっても合理的な選択です。最終的な契約承認はオーナーにあります。業者の独断で断られた場合も、『貸主様に確認いただけますか』と問うことができます。");
+
+  return parts.join("\n");
+}
+
 // ─── POST handler ─────────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as GenerateEmailRequest;
-    const { result, timing, stage, fees, emailTone = "polite" } = body;
+    const { result, timing, stage, fees, emailTone = "polite", preContractContext } = body;
+
+    // ─── 契約前専用ロジック ─────────────────────────────────────────────────────
+    if (timing === "pre_contract") {
+      const frame = buildPreContractEmail(fees, preContractContext);
+      const explanation = buildPreContractExplanation(fees, preContractContext);
+
+      const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 2000,
+        system: `あなたは日本語の文章整形の専門家です。
+与えられたメールの骨格を、不動産業者への確認メールとして自然な日本語に整形してください。
+
+## 厳守事項
+- 論点の内容・意味を変えない
+- 新しい内容を追加しない
+- 違法・無効・返金確定などの断定をしない
+- Markdown記号を使わない
+- プレーンテキストのみ
+- 担当者への敬意を示しながら確認事項を伝える文体
+- 責めるのではなく一緒に解決したいという姿勢
+- 入居後の関係が悪くならないよう担当者の善意を引き出す文体
+- トーン：丁寧・協力的`,
+        messages: [{ role: "user", content: frame }],
+      });
+
+      const content = response.content[0];
+      const draftEmail = content.type === "text" ? content.text : "";
+
+      return Response.json({ draftEmail, explanation });
+    }
+
+    // ─── 既存の契約後ロジック ───────────────────────────────────────────────────
 
     const feeBlocks = fees
       .map((fee) => {
@@ -314,7 +561,7 @@ export async function POST(request: Request) {
     const content = response.content[0];
     const draftEmail = content.type === "text" ? content.text : "";
 
-    return Response.json({ draftEmail });
+    return Response.json({ draftEmail, explanation: null });
   } catch {
     return Response.json({ error: "メール生成に失敗しました" }, { status: 500 });
   }

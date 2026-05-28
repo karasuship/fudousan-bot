@@ -37,6 +37,7 @@ export default function DiagnosisFormV2() {
           timing: v2Input.timing,
           stage: v2Input.stage,
           fees: v2Input.fees,
+          preContractContext: v2Input.preContractContext,
           savedAt: new Date().toISOString(),
         })
       );

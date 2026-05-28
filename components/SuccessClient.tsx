@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { DiagnosisResult } from "@/lib/types";
-import type { DiagnosisResult2, ContractTiming, FeeEntry } from "@/lib/types_v2";
+import type { DiagnosisResult2, ContractTiming, FeeEntry, PreContractContext } from "@/lib/types_v2";
 import CopyButton from "./CopyButton";
 
 const V2_STORAGE_KEY = "rental_diagnosis_v2";
@@ -14,6 +14,7 @@ interface V2StoredData {
   timing: ContractTiming;
   stage: string;
   fees: FeeEntry[];
+  preContractContext?: PreContractContext;
   savedAt: string;
 }
 
@@ -41,8 +42,10 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
   const [storageError, setStorageError] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [emailText, setEmailText] = useState<string>("");
+  const [explanation, setExplanation] = useState<string | null>(null);
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
+  const [explanationOpen, setExplanationOpen] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -87,12 +90,14 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
         stage: v2Data.stage,
         fees: v2Data.fees,
         emailTone: "polite",
+        preContractContext: v2Data.preContractContext,
       }),
     })
       .then((r) => r.json())
       .then((data) => {
         if (data.draftEmail) setEmailText(data.draftEmail);
         else setEmailError("メールの生成に失敗しました");
+        if (data.explanation) setExplanation(data.explanation);
       })
       .catch(() => setEmailError("メールの生成に失敗しました"))
       .finally(() => setEmailLoading(false));
@@ -201,6 +206,27 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
           ※「（お名前）」「（物件情報）」の部分をご自身の情報に書き換えてからご使用ください。
         </p>
       </div>
+
+      {/* 解説ブロック（契約前・explanationがある場合） */}
+      {explanation && (
+        <div className="rounded-xl border border-slate-200 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setExplanationOpen((o) => !o)}
+            className="w-full px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 select-none text-left flex items-center justify-between"
+          >
+            <span>このメールの解説を読む</span>
+            <span className="text-slate-400 text-xs">{explanationOpen ? "▲" : "▼"}</span>
+          </button>
+          {explanationOpen && (
+            <div className="px-4 pb-4 pt-2">
+              <pre className="text-xs text-slate-600 whitespace-pre-wrap font-sans leading-relaxed">
+                {explanation}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ブロック3：送る前に知っておくこと（契約前のみ） */}
       {isPreContract && (
