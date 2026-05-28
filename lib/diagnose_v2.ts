@@ -743,6 +743,11 @@ export function diagnoseV2(input: DiagnosisInput2): DiagnosisResult2 {
           .reduce((sum, f) => sum + (f.amount ?? 0), 0) || null
       : null;
 
+  const preContractEstimate =
+    input.timing === "pre_contract"
+      ? calcPreContractEstimate(input.fees, input.preContractContext)
+      : null;
+
   return {
     timing: input.timing,
     stage: input.stage,
@@ -752,6 +757,7 @@ export function diagnoseV2(input: DiagnosisInput2): DiagnosisResult2 {
     discountWarning,
     freeRentEstimate,
     emailStructure,
+    preContractEstimate,
   };
 }
 

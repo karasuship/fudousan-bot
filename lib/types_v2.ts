@@ -413,6 +413,7 @@ export interface DiagnosisResult2 {
     evidenceRequests: string[];
     explanationRequests: string[];
   };
+  preContractEstimate?: PreContractEstimate | null;
 }
 
 // ─── 契約前の調整見込み ───────────────────────────────────────────────────────
