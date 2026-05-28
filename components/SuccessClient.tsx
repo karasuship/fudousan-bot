@@ -55,6 +55,11 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [explanationOpen, setExplanationOpen] = useState(false);
+  const [agentReply, setAgentReply] = useState<string>("");
+  const [followupType, setFollowupType] = useState<"competitive" | "evidence" | null>(null);
+  const [followupEmail, setFollowupEmail] = useState<string>("");
+  const [followupLoading, setFollowupLoading] = useState(false);
+  const [followupError, setFollowupError] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -116,6 +121,37 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
   const resolvedTiming: string =
     propTiming || v2Data?.timing || "unknown";
   const isPreContract = resolvedTiming === "pre_contract";
+
+  async function handleGenerateFollowup(type: "competitive" | "evidence") {
+    if (!agentReply.trim() || !emailText) return;
+    setFollowupType(type);
+    setFollowupLoading(true);
+    setFollowupError(null);
+    setFollowupEmail("");
+    try {
+      const res = await fetch("/api/generate-email-followup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          timing: resolvedTiming,
+          previousEmail: emailText,
+          agentReply: agentReply.trim(),
+          followupType: type,
+          fees: v2Data?.fees ?? [],
+        }),
+      });
+      const data = await res.json();
+      if (data.draftEmail) {
+        setFollowupEmail(data.draftEmail);
+      } else {
+        setFollowupError("2通目の生成に失敗しました");
+      }
+    } catch {
+      setFollowupError("2通目の生成に失敗しました");
+    } finally {
+      setFollowupLoading(false);
+    }
+  }
 
   // SSR hydrationミスマッチ防止
   if (!mounted) {
@@ -263,6 +299,82 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
           ))}
         </div>
       </details>
+
+      {/* 2通目メール生成 */}
+      {emailText && (
+        <div className="rounded-xl border border-slate-200 overflow-hidden">
+          <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
+            <p className="text-sm font-semibold text-slate-700">業者から返信が来たら</p>
+            <p className="text-xs text-slate-500 mt-0.5">返信内容を貼り付けて、次のメールを生成します</p>
+          </div>
+          <div className="px-4 py-4 space-y-4">
+            <textarea
+              value={agentReply}
+              onChange={(e) => setAgentReply(e.target.value)}
+              placeholder="業者からの返信をここに貼り付けてください"
+              className="w-full h-32 text-sm border border-slate-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-slate-300 text-slate-700"
+            />
+            {agentReply.trim() && (
+              <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3 space-y-2">
+                <p className="text-xs font-semibold text-blue-800">他社でも同じ物件を取れますか？</p>
+                <p className="text-xs text-blue-700">
+                  SUUMO・HOMES・athomeで物件名または住所を検索して、
+                  複数の業者が掲載していれば他社でも申し込めます。
+                  1社しか掲載されていなければ専任の可能性が高いです。
+                </p>
+              </div>
+            )}
+            {agentReply.trim() && (
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => handleGenerateFollowup("competitive")}
+                  disabled={followupLoading}
+                  className={`w-full py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                    !followupLoading
+                      ? "bg-blue-900 text-white hover:bg-blue-800"
+                      : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                  }`}
+                >
+                  {followupLoading && followupType === "competitive"
+                    ? "生成中..."
+                    : "他社でも掲載されていた → 競合メールを作る"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleGenerateFollowup("evidence")}
+                  disabled={followupLoading}
+                  className={`w-full py-2.5 rounded-xl text-sm font-medium transition-colors border ${
+                    !followupLoading
+                      ? "border-slate-300 text-slate-700 hover:bg-slate-50"
+                      : "border-slate-200 text-slate-400 cursor-not-allowed"
+                  }`}
+                >
+                  {followupLoading && followupType === "evidence"
+                    ? "生成中..."
+                    : "1社のみだった → 根拠・条件改善を求めるメールを作る"}
+                </button>
+              </div>
+            )}
+            {followupError && (
+              <p className="text-xs text-red-500">{followupError}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 2通目メール表示 */}
+      {followupEmail && (
+        <div className="rounded-xl border border-blue-200 overflow-hidden">
+          <div className="px-4 py-3 bg-blue-50 border-b border-blue-200 flex items-center justify-between">
+            <p className="text-sm font-semibold text-blue-800">2通目のメール</p>
+            <CopyButton text={followupEmail} />
+          </div>
+          <pre className="px-4 py-3 text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed bg-white">
+            {followupEmail}
+          </pre>
+        </div>
+      )}
 
       {/* ブロック5：並行してできること（契約前のみ・折りたたみ） */}
       {isPreContract && (
