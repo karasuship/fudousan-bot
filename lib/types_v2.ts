@@ -414,3 +414,19 @@ export interface DiagnosisResult2 {
     explanationRequests: string[];
   };
 }
+
+// ─── 契約前の調整見込み ───────────────────────────────────────────────────────
+
+export interface PreContractAdjustment {
+  feeId: FeeId2;
+  amount: number;
+  minAdjust: number;
+  maxAdjust: number;
+  calcNote: string;
+}
+
+export interface PreContractEstimate {
+  items: PreContractAdjustment[];
+  totalMin: number;
+  totalMax: number;
+}

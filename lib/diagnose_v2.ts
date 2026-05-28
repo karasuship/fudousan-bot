@@ -8,6 +8,8 @@ import type {
   AgentResponse,
   FeeId2,
   PreContractContext,
+  PreContractAdjustment,
+  PreContractEstimate,
 } from "./types_v2";
 import { FEE_LABEL } from "./types_v2";
 
@@ -876,4 +878,46 @@ export function detectPreContractIssues(
   }
 
   return issues;
+}
+
+// ─── 契約前の調整見込み額計算 ─────────────────────────────────────────────────
+
+const FIRE_INSURANCE_MARKET_CAP = 20000;
+
+export function calcPreContractEstimate(
+  fees: FeeEntry[],
+  context: PreContractContext | undefined
+): PreContractEstimate {
+  const items: PreContractAdjustment[] = [];
+
+  for (const fee of fees) {
+    if (fee.amount == null || fee.amount === 0) continue;
+    const amount = fee.amount;
+
+    if (fee.feeId === "disinfection" || fee.feeId === "support_24h" || fee.feeId === "admin_fee") {
+      items.push({ feeId: fee.feeId, amount, minAdjust: amount, maxAdjust: amount, calcNote: "任意サービス・全額が調整対象" });
+    } else if (fee.feeId === "agency_fee") {
+      if (context?.monthlyRent) {
+        const excess = Math.max(0, amount - context.monthlyRent * 0.5);
+        items.push({ feeId: fee.feeId, amount, minAdjust: excess, maxAdjust: excess, calcNote: "賃料0.5ヶ月超過分" });
+      } else {
+        items.push({ feeId: fee.feeId, amount, minAdjust: 0, maxAdjust: amount, calcNote: "家賃不明のため0〜満額" });
+      }
+    } else if (fee.feeId === "fire_insurance") {
+      const excess = Math.max(0, amount - FIRE_INSURANCE_MARKET_CAP);
+      items.push({ feeId: fee.feeId, amount, minAdjust: excess, maxAdjust: excess, calcNote: "相場（2万円）超過分" });
+    } else if (fee.feeId === "key_exchange" || fee.feeId === "cleaning") {
+      items.push({ feeId: fee.feeId, amount, minAdjust: 0, maxAdjust: amount, calcNote: "交渉次第（0〜満額）" });
+    } else if (fee.feeId === "key_money") {
+      const minAdjust = context?.contractMonth === "off" ? Math.round(amount * 0.3) : 0;
+      const note = context?.contractMonth === "off" ? "閑散期のため交渉余地大（3割〜満額）" : "交渉次第（0〜満額）";
+      items.push({ feeId: fee.feeId, amount, minAdjust, maxAdjust: amount, calcNote: note });
+    } else if (fee.feeId === "guarantor") {
+      items.push({ feeId: fee.feeId, amount, minAdjust: 0, maxAdjust: 0, calcNote: "他社次第のため金額は確認後" });
+    }
+  }
+
+  const totalMin = items.reduce((s, i) => s + i.minAdjust, 0);
+  const totalMax = items.reduce((s, i) => s + i.maxAdjust, 0);
+  return { items, totalMin, totalMax };
 }
