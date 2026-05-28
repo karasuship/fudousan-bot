@@ -34,6 +34,15 @@ const RESPONSE_PATTERNS = [
   { response: "返信なし・無視", action: "送信記録を保存する。行政窓口への相談材料になる" },
 ];
 
+const PRE_CONTRACT_RESPONSE_PATTERNS = [
+  { response: "「問題ありません」",       action: "何が問題ないかの根拠を書面で求める" },
+  { response: "「弊社の規定です」",       action: "規定の文書開示を求める" },
+  { response: "「一般的な費用です」",     action: "算定根拠を書面で求める" },
+  { response: "「特約に書いてあります」", action: "借主負担にする根拠を求める" },
+  { response: "「貸主の意向です」",       action: "貸主に直接確認したい旨を伝える" },
+  { response: "返信なし・無視",           action: "送信記録を保存する。行政窓口への相談材料になる" },
+];
+
 // ─── コンポーネント ───────────────────────────────────────────────────────────
 
 export default function SuccessClient({ paid, timing: propTiming, stage: propStage }: Props) {
@@ -245,7 +254,7 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
           業者がこう返してきたら？
         </summary>
         <div className="px-4 pb-4 pt-2 space-y-2">
-          {RESPONSE_PATTERNS.map((p) => (
+          {(isPreContract ? PRE_CONTRACT_RESPONSE_PATTERNS : RESPONSE_PATTERNS).map((p) => (
             <div key={p.response} className="text-xs text-slate-600 leading-relaxed">
               <span className="font-medium text-slate-700">{p.response}</span>
               <span className="text-slate-400"> → </span>
@@ -261,18 +270,37 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
           <summary className="px-4 py-3 text-sm font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 select-none">
             並行してできること
           </summary>
-          <div className="px-4 pb-4 pt-2">
-            <p className="text-xs text-slate-600 leading-relaxed">
-              同じ物件を他の仲介業者経由で申し込める場合があります。
-              仲介手数料は業者によって異なり、0ヶ月分の業者も存在します。<br />
-              火災保険は貸主指定の最低補償内容を満たせば他社プランでも可能です。
-            </p>
+          <div className="px-4 pb-4 pt-2 space-y-4">
+            <div>
+              <p className="text-xs font-semibold text-slate-700 mb-1">1. 他社経由で同じ物件を探す</p>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                同じ物件でも、別の仲介業者から申し込める場合があります。
+                仲介手数料は業者によって異なり、0ヶ月分の業者も存在します。
+                SUUMOやHOMESで同じ物件番号を別業者が掲載していないか確認しましょう。
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-700 mb-1">2. 火災保険を自分で選ぶ</p>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                貸主が求める最低補償を満たせば、他社プランで加入できます。
+                業者指定プランより安いことが多く、2年で5,000〜10,000円節約できる場合があります。
+              </p>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-700 mb-1">3. 費目を引きやすい順に交渉する</p>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                引きやすい順：消毒代 → 書類作成費 → 24時間サポート → 仲介手数料 → 鍵交換・クリーニング → 礼金
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                最初に外しやすいものから交渉すると、業者が「融通を利かせた」感を出せます。
+              </p>
+            </div>
           </div>
         </details>
       )}
 
-      {/* ブロック6：解決しない場合（折りたたみ） */}
-      <details className="rounded-xl border border-slate-200 overflow-hidden">
+      {/* ブロック6：解決しない場合（折りたたみ・契約後のみ） */}
+      {!isPreContract && <details className="rounded-xl border border-slate-200 overflow-hidden">
         <summary className="px-4 py-3 text-sm font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 select-none">
           解決しない場合の相談窓口
         </summary>
@@ -287,7 +315,58 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
             <span className="font-medium">宅地建物取引業協会：</span>各都道府県の協会窓口（宅建協会）
           </p>
         </div>
-      </details>
+      </details>}
+
+      {/* 入居前チェックリスト（契約前のみ・折りたたみ） */}
+      {isPreContract && (
+        <details className="rounded-xl border border-slate-200 overflow-hidden">
+          <summary className="px-4 py-3 text-sm font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 select-none">
+            入居前・入居時にやっておくこと
+          </summary>
+          <div className="px-4 pb-4 pt-2 space-y-4">
+            <p className="text-xs text-slate-500">退去時のトラブルを防ぐための記録リスト</p>
+
+            <div>
+              <p className="text-xs font-semibold text-slate-700 mb-1.5">入居前に業者に確認すること</p>
+              <ul className="space-y-2 text-xs text-slate-600">
+                <li>
+                  <span className="font-medium">・壁紙の張り替え時期（いつ張り替えたか）</span>
+                  <p className="text-slate-500 mt-0.5 ml-2">→ 張り替えから6年で借主の原状回復負担はほぼゼロになります</p>
+                </li>
+                <li>
+                  <span className="font-medium">・前入居者の退去日と空室期間</span>
+                  <p className="text-slate-500 mt-0.5 ml-2">→ 長期空室なら設備の劣化は貸主負担と言いやすくなります</p>
+                </li>
+                <li>・鍵交換の実施日と新品への交換かどうか</li>
+                <li>・入居前清掃の実施日と業者名</li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-slate-700 mb-1.5">入居時にやること（鍵をもらった日）</p>
+              <ul className="space-y-2 text-xs text-slate-600">
+                <li>
+                  <span className="font-medium">・全室の傷・汚れ・設備の状態を写真で記録する</span>
+                  <p className="text-slate-500 mt-0.5 ml-2">→ 日付入りで保存。退去時に「入居前からある」と証明できます</p>
+                </li>
+                <li>
+                  <span className="font-medium">・設備の不具合をその日のうちに業者に連絡する</span>
+                  <p className="text-slate-500 mt-0.5 ml-2">→ メールまたはLINEで文字として残す</p>
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="text-xs font-semibold text-slate-700 mb-1.5">保存しておくべきもの</p>
+              <ul className="space-y-1 text-xs text-slate-600">
+                <li>・重要事項説明書・賃貸借契約書のコピー</li>
+                <li>・見積書・請求書・領収書</li>
+                <li>・今回業者とやり取りしたメールの記録</li>
+              </ul>
+            </div>
+          </div>
+        </details>
+      )}
 
       {/* ブロック7：ナビゲーション */}
       <div className="flex flex-col sm:flex-row gap-3 pt-1">
