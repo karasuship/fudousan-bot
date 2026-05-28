@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { DiagnosisInput2, DiagnosisResult2 } from "@/lib/types_v2";
 import FlowRoot from "./diagnosis/FlowRoot";
 import DiagnosisResultV2 from "./DiagnosisResultV2";
+import PreContractResult from "./PreContractResult";
 
 export default function DiagnosisFormV2() {
   const [v2Input, setV2Input] = useState<DiagnosisInput2 | null>(null);
@@ -58,13 +59,22 @@ export default function DiagnosisFormV2() {
       )}
 
       {v2Result && v2Input && (
-        <DiagnosisResultV2
-          result={v2Result}
-          timing={v2Input.timing}
-          stage={v2Input.stage}
-          fees={v2Input.fees}
-          onBack={() => setV2Result(null)}
-        />
+        v2Input.timing === "pre_contract" ? (
+          <PreContractResult
+            result={v2Result}
+            fees={v2Input.fees}
+            preContractContext={v2Input.preContractContext}
+            onBack={() => setV2Result(null)}
+          />
+        ) : (
+          <DiagnosisResultV2
+            result={v2Result}
+            timing={v2Input.timing}
+            stage={v2Input.stage}
+            fees={v2Input.fees}
+            onBack={() => setV2Result(null)}
+          />
+        )
       )}
     </div>
   );

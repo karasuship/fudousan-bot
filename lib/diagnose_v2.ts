@@ -605,12 +605,12 @@ function getFeeReason(
 ): string {
   if (strategy === "delete") {
     if (feeId === "disinfection")
-      return "任意サービスです。断っても入居を拒否できません。削除を求めてください。";
+      return "任意サービスです。断っても入居を拒否できません。削除を交渉できます。";
     if (feeId === "support_24h")
-      return "任意サービスです。火災保険の付帯サービスと重複する可能性があります。削除を求めてください。";
+      return "任意サービスです。火災保険の付帯サービスと重複する可能性があります。削除を交渉できます。";
     if (feeId === "admin_fee")
-      return "仲介業者の基本業務のコストを転嫁している可能性があります。削除または根拠確認を求めてください。";
-    return `${label}には削除を求めるべき根拠があります。`;
+      return "仲介業者の基本業務のコストを転嫁している可能性があります。削除または根拠確認を交渉できます。";
+    return `${label}には削除を交渉できます。`;
   }
 
   if (strategy === "free_rent") {
@@ -801,7 +801,7 @@ export function detectPreContractIssues(
         severity: getSeverity("high", context), label: `${label}：契約前確認`, strategy: "free_rent",
         axisAText: "鍵交換は本来、前入居者退去後に貸主が行うべき費用とされています。借主負担とする根拠の説明が必要です。",
         axisBText: null, yesNoQuestion: null, evidenceRequest: null,
-        explanationRequest: "借主負担とする根拠をご説明ください。削除またはフリーレント転換もご検討ください。",
+        explanationRequest: "借主負担とする根拠をご説明ください。削除またはフリーレント転換を交渉できます。",
       });
     }
 
@@ -812,7 +812,7 @@ export function detectPreContractIssues(
         severity: getSeverity("high", context), label: `${label}：契約前確認`, strategy: "free_rent",
         axisAText: "クリーニング費は国土交通省ガイドライン上、本来貸主負担が原則です。",
         axisBText: null, yesNoQuestion: null, evidenceRequest: null,
-        explanationRequest: "借主負担とする根拠をご説明ください。削除またはフリーレント転換もご検討ください。",
+        explanationRequest: "借主負担とする根拠をご説明ください。削除またはフリーレント転換を交渉できます。",
       });
     }
 
