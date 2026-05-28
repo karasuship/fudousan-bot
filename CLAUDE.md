@@ -945,24 +945,15 @@ C：入居前チェックリスト（ロードマップ）
 セッションをまたいで方向性がブレないための
 やることリスト。優先順位付き。
 
-### A：契約前フロー（最優先・実装中）
+### A：契約前フロー（完了）
 
-A1. PreContractDetail型を実務軸に作り直す
-　（家賃・時期・申込状況・他社比較・費目金額）
-A2. detectPreContractIssuesを実務軸に書き直し
-A3. PreContractFlowの質問画面を作り直す
-　・質問の意義を明示
-　・回答後のミニフィードバック
-A4. 相場レンジ機能の実装
-　（家賃の何ヶ月分か・一般的レンジとの比較）
-A5. 契約前の結果画面（契約後と視覚的に区別）
-A6. 契約前のメール生成（実務軸）
-A7. 契約前のsuccessページ
-　・前向きな交渉メール
-　・送る前の心理的後押し
-　・業者の返答パターンと次の手
-　・並行戦略（他社・相見積もり・火災保険）
-　・入居前チェックリスト（おまけ）
+✅ A1. PreContractDetail型を実務軸に作り直す
+✅ A2. detectPreContractIssuesを実務軸に書き直し
+✅ A3. PreContractFlowの質問画面（3ステップ・動作確認済み）
+✅ A4. 相場レンジ機能（calcPreContractEstimate・下限/上限レンジ）
+✅ A5. 契約前の結果画面（PreContractResult・S/A/B分類・青緑系）
+✅ A6. 契約前のメール生成（専用ロジック・個別解説付き）
+✅ A7. 契約前のsuccessページ（A+B主役・C付き）
 
 ### B：契約後の課金後コンテンツ強化
 
@@ -1001,6 +992,9 @@ D1. デバッグ用console.logを削除
 　・generate-email/route.ts に3箇所
 　・SuccessClient.tsx も確認
 D2. 課金前後の旧フロー型の整理
+D3. 契約後フローのトーン選択を削除（emailTone固定polite）
+D4. 連帯保証人の有無を質問に追加
+　（保証会社の文面が変わるため・PreContractContextに hasGuarantor追加）
 
 ### E：レイヤー構造（将来）
 
