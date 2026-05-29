@@ -24,6 +24,7 @@ interface GenerateEmailRequest {
     contractMonth: "busy" | "off" | "normal";
     applicationStatus: "before_apply" | "applied_waiting" | "approved";
     otherCompanyComparison: "yes" | "no" | "planning" | null;
+    hasGuarantor?: "yes" | "no" | null;
   };
 }
 
@@ -349,13 +350,25 @@ function buildPreContractEmail(
   }
 
   if (feeIds.has("guarantor")) {
-    blocks.push(`【保証会社費用について】
+    if (context?.hasGuarantor === "yes") {
+      blocks.push(`【保証会社費用について】
+
+連帯保証人を立てる予定がありますが、
+それでも保証会社のご利用は必須でしょうか。
+貸主様のご意向か御社のご規定によるものかを
+ご教示ください。
+ご利用可能な保証会社の選択肢と、
+保証会社と管理会社・仲介会社のグループ関係の
+有無もあわせてご教示ください。`);
+    } else {
+      blocks.push(`【保証会社費用について】
 
 ご利用可能な保証会社の選択肢が
 ございましたらご教示ください。
 あわせて、保証会社と管理会社・仲介会社の
 グループ関係の有無もご確認いただけますと
 幸いです。`);
+    }
   }
 
   if (feeIds.has("fire_insurance")) {

@@ -8,7 +8,7 @@ import type {
   PreContractContext,
 } from "@/lib/types_v2";
 import { FEE_LABEL } from "@/lib/types_v2";
-import { FieldBlock, HelpText, Label, SectionCard } from "./ui";
+import { FieldBlock, HelpText, Label, RadioGroup, SectionCard } from "./ui";
 import FeeSelect from "./FeeSelect";
 import PreContractContextInput from "./PreContractContextInput";
 
@@ -47,6 +47,7 @@ function toContext(ctx: Partial<PreContractContext>): PreContractContext {
     contractMonth: ctx.contractMonth!,
     applicationStatus: ctx.applicationStatus!,
     otherCompanyComparison: ctx.otherCompanyComparison ?? null,
+    hasGuarantor: ctx.hasGuarantor ?? null,
   };
 }
 
@@ -97,6 +98,9 @@ export default function PreContractFlow({ onChange, onSubmit = () => {}, isLoadi
 
   function removeFee(feeId: FeeId2) {
     setFees((prev) => prev.filter((f) => f.feeId !== feeId));
+    if (feeId === "guarantor") {
+      setContext((prev) => ({ ...prev, hasGuarantor: undefined }));
+    }
   }
 
   function buildInput(): DiagnosisInput2 {
@@ -206,6 +210,24 @@ export default function PreContractFlow({ onChange, onSubmit = () => {}, isLoadi
             </SectionCard>
           )}
 
+          {/* Q5：連帯保証人（保証会社費用が含まれる場合のみ・任意） */}
+          {fees.some((f) => f.feeId === "guarantor") && (
+            <SectionCard>
+              <FieldBlock>
+                <Label>連帯保証人を立てる予定はありますか？</Label>
+                <HelpText>保証会社費用の交渉材料になります（任意）</HelpText>
+                <RadioGroup
+                  value={context.hasGuarantor ?? null}
+                  onChange={(v) => setContext({ ...context, hasGuarantor: v })}
+                  options={[
+                    { value: "yes" as const, label: "立てる予定がある" },
+                    { value: "no"  as const, label: "立てない（保証会社のみ）" },
+                  ]}
+                />
+              </FieldBlock>
+            </SectionCard>
+          )}
+
           <div className="flex gap-3">
             <button
               type="button"
@@ -253,6 +275,8 @@ export default function PreContractFlow({ onChange, onSubmit = () => {}, isLoadi
               {context.otherCompanyComparison && (
                 <p>他社比較：{COMPARISON_LABEL[context.otherCompanyComparison]}</p>
               )}
+              {context.hasGuarantor === "yes" && <p>連帯保証人：立てる予定がある</p>}
+              {context.hasGuarantor === "no"  && <p>連帯保証人：立てない（保証会社のみ）</p>}
             </div>
           </SectionCard>
 

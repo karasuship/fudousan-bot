@@ -11,6 +11,7 @@ interface FollowupEmailRequest {
   agentReply: string;
   followupType: "competitive" | "evidence";
   fees?: Array<{ feeId: string; amount: number | null }>;
+  hasGuarantor?: "yes" | "no" | null;
 }
 
 type FeeAnalysis = {
@@ -69,7 +70,7 @@ ${feeLines}
 
 // ─── 費目別2通目ブロック ──────────────────────────────────────────────────────
 
-function buildFeeBlock2(feeId: string, agentReply: string): string {
+function buildFeeBlock2(feeId: string, agentReply: string, hasGuarantor?: "yes" | "no" | null): string {
   switch (feeId) {
     case "agency_fee":
       return `【仲介手数料について】
@@ -120,6 +121,14 @@ function buildFeeBlock2(feeId: string, agentReply: string): string {
 書面でのご回答をお願いします。`;
 
     case "guarantor":
+      if (hasGuarantor === "yes") {
+        return `【保証会社費用について】
+連帯保証人を立てる予定である旨を伝えましたが、
+その上でも必須とのご回答でしょうか。
+貸主様へのご確認状況と選択可能な保証会社の一覧、
+管理会社・仲介会社とのグループ関係の有無について
+書面でのご回答をお願いします。`;
+      }
       return `【保証会社費用について】
 選択可能な保証会社の一覧と
 管理会社・仲介会社とのグループ関係の有無について
@@ -167,7 +176,7 @@ ${content}
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as FollowupEmailRequest;
-    const { previousEmail, agentReply, followupType, fees } = body;
+    const { previousEmail, agentReply, followupType, fees, hasGuarantor } = body;
 
     // ─── 競合型 ──────────────────────────────────────────────────────────────
     if (followupType === "competitive") {
@@ -228,7 +237,7 @@ feeIdの一覧：agency_fee/key_exchange/cleaning/disinfection/support_24h/admin
       (a) => a.status === "partial" || a.status === "unresolved"
     );
     const feeBlocks = actionable
-      .map((a) => buildFeeBlock2(a.feeId, agentReply))
+      .map((a) => buildFeeBlock2(a.feeId, agentReply, hasGuarantor))
       .filter(Boolean);
 
     if (feeBlocks.length === 0) {

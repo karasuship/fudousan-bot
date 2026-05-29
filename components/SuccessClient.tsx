@@ -138,6 +138,7 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
           agentReply: agentReply.trim(),
           followupType: type,
           fees: v2Data?.fees ?? [],
+          hasGuarantor: v2Data?.preContractContext?.hasGuarantor ?? null,
         }),
       });
       const data = await res.json();

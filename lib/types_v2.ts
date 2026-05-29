@@ -295,6 +295,9 @@ export interface PreContractContext {
   // applied_waiting: 申込済み・審査待ち
   // approved: 審査通過済み・見積もり受領済み
   otherCompanyComparison: "yes" | "no" | "planning" | null;
+  hasGuarantor?: "yes" | "no" | null;
+  // yes: 連帯保証人を立てる予定
+  // no:  立てない・保証会社のみ
 }
 
 // ─── 診断入力（メイン） ──────────────────────────────────────────────────────
