@@ -17,7 +17,7 @@ import FeeDetailCard from "./FeeDetailCard";
 import TimelineInput from "./TimelineInput";
 import AgentResponseInput from "./AgentResponseInput";
 
-type Step = "situation" | "fees" | "fee_detail" | "timeline" | "agent" | "tone";
+type Step = "situation" | "fees" | "fee_detail" | "timeline" | "agent";
 type ExplainOrder =
   | "juusetsu_sign_payment"
   | "sign_juusetsu_payment"
@@ -33,15 +33,8 @@ const STEP_LABEL: Record<Step, string> = {
   fee_detail: "費目別詳細",
   timeline: "時系列",
   agent: "業者対応",
-  tone: "メールトーン",
 };
-const STEP_ORDER: Step[] = ["situation", "fees", "fee_detail", "timeline", "agent", "tone"];
-
-const TONE_OPTIONS: { value: "polite" | "firm" | "factual"; label: string }[] = [
-  { value: "polite", label: "丁寧に確認する" },
-  { value: "firm", label: "明確に根拠を求める" },
-  { value: "factual", label: "事実のみを記録する" },
-];
+const STEP_ORDER: Step[] = ["situation", "fees", "fee_detail", "timeline", "agent"];
 
 interface Props {
   /** FlowRootで「署名した・まだ支払っていない」を選んだ場合に渡す */
@@ -75,8 +68,7 @@ export default function PostContractFlow({ initialStage, onChange, onSubmit = ()
   // STEP: 業者対応
   const [agentResponse, setAgentResponse] = useState<AgentResponse | null>(null);
 
-  // STEP: メールトーン
-  const [emailTone, setEmailTone] = useState<"polite" | "firm" | "factual">("polite");
+  const emailTone = "polite" as const;
 
   const monthlyRent = monthlyRentStr ? parseInt(monthlyRentStr, 10) || null : null;
   const totalAmount = totalAmountStr ? parseInt(totalAmountStr, 10) || null : null;
@@ -86,7 +78,7 @@ export default function PostContractFlow({ initialStage, onChange, onSubmit = ()
     if (!stage) return;
     onChange({ timing, stage, monthlyRent, totalAmount, fees, timeline, agentResponse, emailTone });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, fees, monthlyRent, totalAmount, timeline, agentResponse, emailTone]);
+  }, [stage, fees, monthlyRent, totalAmount, timeline, agentResponse]);
 
   function goTo(next: Step) {
     setStepHistory((prev) => [...prev, step]);
@@ -406,43 +398,17 @@ export default function PostContractFlow({ initialStage, onChange, onSubmit = ()
             </button>
             <button
               type="button"
-              onClick={() => goTo("tone")}
-              className="flex-1 bg-blue-900 text-white py-3 rounded-xl text-sm font-medium hover:bg-blue-800 transition-colors"
+              onClick={onSubmit}
+              disabled={isLoading}
+              className="flex-1 bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white py-3 rounded-xl text-sm font-semibold transition-colors"
             >
-              次へ →
+              {isLoading ? "診断中..." : "診断する"}
             </button>
           </div>
-        </div>
-      )}
-
-      {/* ── STEP: メールトーン ── */}
-      {step === "tone" && (
-        <div className="space-y-4">
-          <SectionCard>
-            <FieldBlock>
-              <Label>確認メールのトーンを選んでください</Label>
-              <RadioGroup value={emailTone} onChange={setEmailTone} options={TONE_OPTIONS} />
-            </FieldBlock>
-          </SectionCard>
-          <button
-            type="button"
-            onClick={goBack}
-            className="px-4 py-2 text-sm text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50"
-          >
-            戻る
-          </button>
           <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3">
             <p className="text-sm font-medium text-green-800">入力完了です。</p>
             <p className="text-xs text-green-700 mt-1">入力内容は自動的に記録されています。</p>
           </div>
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={isLoading}
-            className="w-full bg-blue-900 hover:bg-blue-800 disabled:opacity-50 text-white py-3.5 rounded-xl text-sm font-semibold transition-colors"
-          >
-            {isLoading ? "診断中..." : "診断する"}
-          </button>
         </div>
       )}
     </div>
