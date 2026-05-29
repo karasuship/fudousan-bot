@@ -43,6 +43,44 @@ const PRE_CONTRACT_RESPONSE_PATTERNS = [
   { response: "返信なし・無視",           action: "送信記録を保存する。行政窓口への相談材料になる" },
 ];
 
+const PRE_CONTRACT_FAQS = [
+  {
+    q: "業者から返信がなかった場合はどうすればいいですか？",
+    a: "返信がないこと自体が記録になります。1週間程度待っても返信がない場合は、再送または消費者ホットライン（188）への相談材料として使えます。",
+  },
+  {
+    q: "交渉メールを送ったら嫌われませんか？",
+    a: "このサービスのメールは「根拠を確認してから決める誠実な借主」の文体です。責めず・断定せず・丁寧に。入居後の関係を壊さないよう設計されています。",
+  },
+  {
+    q: "全部の費用が外れるわけではないですよね？",
+    a: "その通りです。根拠のある費用は払うべきです。このサービスは「根拠のない費用を特定して確認する」ためのものです。交渉の結果は業者・物件・時期によります。",
+  },
+  {
+    q: "他社で同じ物件が見つからなかった場合は？",
+    a: "専任媒介の可能性があります。その場合は「1社のみだった→根拠・条件改善を求めるメールを作る」を使って、A社内で粘る戦略に切り替えましょう。",
+  },
+];
+
+const POST_CONTRACT_FAQS = [
+  {
+    q: "業者から返信がなかった場合はどうすればいいですか？",
+    a: "返信がないこと自体が記録になります。消費者ホットライン（188）・国土交通省の相談窓口・各都道府県の宅建協会への相談材料として使えます。",
+  },
+  {
+    q: "すでに退去してしまった場合でも使えますか？",
+    a: "使えます。退去精算に疑問がある場合、根拠確認・記録として使えます。退去から時間が経っていても、記録が残っていれば相談できます。",
+  },
+  {
+    q: "返金は保証されますか？",
+    a: "保証はできません。ただし根拠を確認することで、業者が自主的に対応するケースがあります。記録が残ることで行政相談・調停・少額訴訟の材料になります。",
+  },
+  {
+    q: "弁護士に相談した方がいいですか？",
+    a: "金額が大きい・業者の対応が悪質な場合は弁護士相談も有効です。まずこのサービスで記録を整えてから相談すると、弁護士への説明がしやすくなります。",
+  },
+];
+
 // ─── コンポーネント ───────────────────────────────────────────────────────────
 
 export default function SuccessClient({ paid, timing: propTiming, stage: propStage }: Props) {
@@ -480,6 +518,27 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
           </div>
         </details>
       )}
+
+      {/* FAQブロック */}
+      <div className="space-y-2">
+        <p className="text-sm font-semibold text-slate-700 px-1">
+          よくある質問
+        </p>
+        {(isPreContract ? PRE_CONTRACT_FAQS : POST_CONTRACT_FAQS).map((faq) => (
+          <details
+            key={faq.q}
+            className="rounded-xl border border-slate-200 overflow-hidden"
+          >
+            <summary className="px-4 py-3 text-sm font-medium text-slate-700 cursor-pointer hover:bg-slate-50 select-none list-none flex items-center justify-between">
+              <span>{faq.q}</span>
+              <span className="text-slate-400 text-xs shrink-0 ml-3">▼</span>
+            </summary>
+            <div className="px-4 pb-4 pt-2">
+              <p className="text-xs text-slate-600 leading-relaxed">{faq.a}</p>
+            </div>
+          </details>
+        ))}
+      </div>
 
       {/* ブロック7：ナビゲーション */}
       <div className="flex flex-col sm:flex-row gap-3 pt-1">
