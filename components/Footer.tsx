@@ -22,6 +22,12 @@ export default function Footer() {
           <Link href="/contact" className="hover:text-slate-600 transition-colors">
             お問い合わせ
           </Link>
+          <Link href="/faq" className="hover:text-slate-600 transition-colors">
+            よくある質問
+          </Link>
+          <Link href="/about" className="hover:text-slate-600 transition-colors">
+            このサービスについて
+          </Link>
         </div>
       </div>
       <div className="max-w-3xl mx-auto px-4 pb-6">
