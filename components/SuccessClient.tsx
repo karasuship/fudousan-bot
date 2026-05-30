@@ -98,6 +98,10 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
   const [followupEmail, setFollowupEmail] = useState<string>("");
   const [followupLoading, setFollowupLoading] = useState(false);
   const [followupError, setFollowupError] = useState<string | null>(null);
+  const [complaintText, setComplaintText] = useState<string>("");
+  const [complaintLoading, setComplaintLoading] = useState(false);
+  const [complaintError, setComplaintError] = useState<string | null>(null);
+  const [complaintFormat, setComplaintFormat] = useState<"brief" | "detailed" | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -189,6 +193,35 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
       setFollowupError("2通目の生成に失敗しました");
     } finally {
       setFollowupLoading(false);
+    }
+  }
+
+  async function handleGenerateComplaint(format: "brief" | "detailed") {
+    setComplaintFormat(format);
+    setComplaintLoading(true);
+    setComplaintError(null);
+    setComplaintText("");
+    try {
+      const res = await fetch("/api/generate-complaint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          emailText,
+          agentReply: agentReply.trim() || undefined,
+          fees: v2Data?.fees ?? [],
+          format,
+        }),
+      });
+      const data = await res.json();
+      if (data.complaintText) {
+        setComplaintText(data.complaintText);
+      } else {
+        setComplaintError("文書の生成に失敗しました");
+      }
+    } catch {
+      setComplaintError("文書の生成に失敗しました");
+    } finally {
+      setComplaintLoading(false);
     }
   }
 
@@ -450,23 +483,157 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
         </details>
       )}
 
-      {/* ブロック6：解決しない場合（折りたたみ・契約後のみ） */}
-      {!isPreContract && <details className="rounded-xl border border-slate-200 overflow-hidden">
-        <summary className="px-4 py-3 text-sm font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 select-none">
-          解決しない場合の相談窓口
-        </summary>
-        <div className="px-4 pb-4 pt-2 space-y-1.5">
-          <p className="text-xs text-slate-600">
-            <span className="font-medium">消費者ホットライン：</span>188（いやや）
-          </p>
-          <p className="text-xs text-slate-600">
-            <span className="font-medium">国土交通省 不動産相談窓口：</span>国土交通省の不動産業に関する相談窓口
-          </p>
-          <p className="text-xs text-slate-600">
-            <span className="font-medium">宅地建物取引業協会：</span>各都道府県の協会窓口（宅建協会）
-          </p>
-        </div>
-      </details>}
+      {/* ブロック6：解決しない場合（2通目生成後・契約後のみ） */}
+      {!isPreContract && followupEmail && (
+        <>
+          {/* 相談窓口ブロック */}
+          <details className="rounded-xl border border-slate-200 overflow-hidden">
+            <summary className="px-4 py-3 text-sm font-semibold text-slate-700 cursor-pointer hover:bg-slate-50 select-none">
+              ▼ それでも解決しない場合の相談窓口
+            </summary>
+            <div className="px-4 pb-4 pt-2 space-y-4">
+
+              <p className="text-xs text-slate-600 leading-relaxed bg-blue-50 rounded-lg px-3 py-2">
+                以下はすべて<strong>無料で利用できる公的な相談窓口</strong>です。
+                このサービスで作った記録・メールをそのまま持参・送付できます。
+              </p>
+
+              {/* 消費者ホットライン */}
+              <div className="border border-slate-100 rounded-lg px-4 py-3">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-xs bg-green-100 text-green-700 rounded px-2 py-0.5 font-medium">無料</span>
+                  <span className="text-xs bg-slate-100 text-slate-600 rounded px-2 py-0.5">公式</span>
+                  <p className="text-sm font-semibold text-slate-800">消費者ホットライン 188</p>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed mt-1">
+                  消費者庁が管轄する公式窓口。188に電話して住所を伝えると最寄りの消費者センターにつながります。<br />
+                  <span className="text-green-700 font-medium">できること：</span>業者へのあっせん（仲介交渉）・記録として残る<br />
+                  直接の返金強制はできませんが、業者は行政窓口からの連絡を無視しにくく、対応が変わることがあります。
+                </p>
+              </div>
+
+              {/* 国土交通省 */}
+              <div className="border border-slate-100 rounded-lg px-4 py-3">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-xs bg-green-100 text-green-700 rounded px-2 py-0.5 font-medium">無料</span>
+                  <span className="text-xs bg-slate-100 text-slate-600 rounded px-2 py-0.5">公式</span>
+                  <p className="text-sm font-semibold text-slate-800">国土交通省 不動産相談</p>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed mt-1">
+                  宅建業法違反の疑いについて相談できる国の窓口。<br />
+                  <span className="text-green-700 font-medium">できること：</span>行政指導・処分の端緒になり得る。処分になれば業者名が公表される<br />
+                  個人への返金を直接求めることはできませんが、業者の免許に影響する可能性があります。
+                </p>
+                <a
+                  href="https://www.mlit.go.jp/totikensangyo/const/1_6_bt_000100.html"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-600 hover:underline mt-1 inline-block"
+                >
+                  国土交通省 不動産相談窓口 →
+                </a>
+              </div>
+
+              {/* 法テラス */}
+              <div className="border border-slate-100 rounded-lg px-4 py-3">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-xs bg-green-100 text-green-700 rounded px-2 py-0.5 font-medium">相談無料</span>
+                  <span className="text-xs bg-slate-100 text-slate-600 rounded px-2 py-0.5">公的機関</span>
+                  <p className="text-sm font-semibold text-slate-800">法テラス</p>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed mt-1">
+                  法務省所管の公的機関。返金・損害賠償など法的解決を目指す場合に。<br />
+                  <span className="text-green-700 font-medium">できること：</span>弁護士費用の立替制度あり・少額訴訟（60万以下）の相談<br />
+                  収入要件がありますが、費用の心配がある場合でも相談できます。
+                </p>
+                <a
+                  href="https://www.houterasu.or.jp/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-600 hover:underline mt-1 inline-block"
+                >
+                  法テラス公式サイト →
+                </a>
+              </div>
+
+              {/* 宅建協会 */}
+              <div className="border border-slate-100 rounded-lg px-4 py-3">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
+                  <span className="text-xs bg-green-100 text-green-700 rounded px-2 py-0.5 font-medium">無料</span>
+                  <span className="text-xs bg-slate-100 text-slate-600 rounded px-2 py-0.5">公的団体</span>
+                  <p className="text-sm font-semibold text-slate-800">宅建協会（都道府県別）</p>
+                </div>
+                <p className="text-xs text-slate-600 leading-relaxed mt-1">
+                  都道府県知事が認定する業界団体。会員業者へのあっせん・苦情処理。<br />
+                  <span className="text-green-700 font-medium">できること：</span>会員業者への働きかけ・苦情記録<br />
+                  業者が協会員かどうか確認してから相談すると効果的です。
+                </p>
+              </div>
+
+            </div>
+          </details>
+
+          {/* 状況まとめ生成UI */}
+          <div className="rounded-xl border border-slate-200 overflow-hidden">
+            <div className="px-4 py-3 bg-slate-50 border-b border-slate-200">
+              <p className="text-sm font-semibold text-slate-700">
+                相談窓口に持っていく状況まとめを作る
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                このサービスの記録を元に、相談時に使える文書を生成します
+              </p>
+            </div>
+            <div className="px-4 py-3 space-y-2">
+              <button
+                type="button"
+                onClick={() => handleGenerateComplaint("brief")}
+                disabled={complaintLoading}
+                className={`w-full py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                  !complaintLoading
+                    ? "bg-slate-800 text-white hover:bg-slate-700"
+                    : "bg-slate-200 text-slate-400 cursor-not-allowed"
+                }`}
+              >
+                {complaintLoading && complaintFormat === "brief"
+                  ? "生成中..."
+                  : "電話・窓口用の要点メモを作る"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleGenerateComplaint("detailed")}
+                disabled={complaintLoading}
+                className={`w-full py-2.5 rounded-xl text-sm font-medium transition-colors border ${
+                  !complaintLoading
+                    ? "border-slate-300 text-slate-700 hover:bg-slate-50"
+                    : "border-slate-200 text-slate-400 cursor-not-allowed"
+                }`}
+              >
+                {complaintLoading && complaintFormat === "detailed"
+                  ? "生成中..."
+                  : "書面・メール用の詳細まとめを作る"}
+              </button>
+              {complaintError && (
+                <p className="text-xs text-red-500">{complaintError}</p>
+              )}
+            </div>
+          </div>
+
+          {/* 生成結果 */}
+          {complaintText && (
+            <div className="rounded-xl border border-slate-200 overflow-hidden">
+              <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <p className="text-sm font-semibold text-slate-700">
+                  {complaintFormat === "brief" ? "要点メモ" : "詳細まとめ"}
+                </p>
+                <CopyButton text={complaintText} />
+              </div>
+              <pre className="px-4 py-3 text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed bg-white">
+                {complaintText}
+              </pre>
+            </div>
+          )}
+        </>
+      )}
 
       {/* 入居前チェックリスト（契約前のみ・折りたたみ） */}
       {isPreContract && (
