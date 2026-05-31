@@ -10,6 +10,7 @@ import type {
   PreContractContext,
   PreContractAdjustment,
   PreContractEstimate,
+  PreContractDetail,
 } from "./types_v2";
 import { FEE_LABEL } from "./types_v2";
 
@@ -758,10 +759,27 @@ export function diagnoseV2(input: DiagnosisInput2): DiagnosisResult2 {
     freeRentEstimate,
     emailStructure,
     preContractEstimate,
+    futureCostWarnings: input.futureCosts,
   };
 }
 
 // ─── 契約前診断ロジック ──────────────────────────────────────────────────────
+
+function applyExplanationStatus(
+  issue: Issue2,
+  es: PreContractDetail["explanationStatus"]
+): void {
+  if (!es || es === "not_asked") return;
+  if (es === "mandatory" && issue.strategy === "delete") {
+    issue.severity = "high";
+    issue.axisAText += "。任意サービスを必須と告げることは宅建業法第47条の禁止行為にあたる可能性があります";
+  } else if (es === "not_explained") {
+    issue.severity = "high";
+    issue.axisAText += "。費用の内容・根拠について説明がなかったことは宅建業法第35条の説明義務違反にあたる可能性があります";
+  } else if (es === "optional_told") {
+    issue.strategy = "delete";
+  }
+}
 
 function getSeverity(
   baseSeverity: "high" | "medium",
@@ -782,6 +800,7 @@ export function detectPreContractIssues(
     if (!d || !("kind" in d) || d.kind !== "pre_contract") continue;
 
     const label = FEE_LABEL[fee.feeId] ?? fee.feeId;
+    const beforeLen = issues.length;
 
     // ── 仲介手数料 ──
     if (fee.feeId === "agency_fee") {
@@ -880,6 +899,43 @@ export function detectPreContractIssues(
         axisBText: null, yesNoQuestion: null, evidenceRequest: null,
         explanationRequest: "礼金の調整、またはフリーレント・他費用との総額調整をご検討いただけますでしょうか。",
       });
+    }
+
+    // ── 申込金・預り金 ──
+    if (fee.feeId === "deposit_advance") {
+      issues.push({
+        id: "pre_deposit_advance_check", feeId: fee.feeId, axis: "A", layer: "voluntary",
+        severity: "high", label: `${label}：返金条件確認`, strategy: "confirm",
+        axisAText: "契約・重要事項説明前に金銭を受領することは宅建業法上問題になり得ます。返金条件・拘束性を書面で確認してください",
+        axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+        explanationRequest: "返金条件・拘束性について書面でご説明ください。",
+      });
+    }
+
+    // ── パック料金 ──
+    if (fee.feeId === "pack_fee") {
+      issues.push({
+        id: "pre_pack_fee_check", feeId: fee.feeId, axis: "A", layer: "voluntary",
+        severity: "medium", label: `${label}：内訳確認`, strategy: "confirm",
+        axisAText: "パック料金の内訳が不明です。何の費用がいくらで含まれているか書面での説明を求めることができます",
+        axisBText: null, yesNoQuestion: null, evidenceRequest: null,
+        explanationRequest: "パック料金の内訳を書面でご説明ください。",
+      });
+    }
+
+    // explanationStatus による severity/strategy の動的調整
+    for (let i = beforeLen; i < issues.length; i++) {
+      applyExplanationStatus(issues[i], (d as PreContractDetail).explanationStatus);
+    }
+  }
+
+  // otherCompanyConfirmed による戦略の積極化
+  if (
+    context?.otherCompanyConfirmed === "confirmed_same" &&
+    context?.applicationStatus === "before_apply"
+  ) {
+    for (const issue of issues) {
+      if (issue.strategy === "free_rent") issue.strategy = "delete";
     }
   }
 
