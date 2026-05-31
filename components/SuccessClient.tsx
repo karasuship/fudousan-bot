@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { DiagnosisResult } from "@/lib/types";
 import type { DiagnosisResult2, ContractTiming, FeeEntry, PreContractContext } from "@/lib/types_v2";
@@ -102,6 +102,9 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
   const [complaintLoading, setComplaintLoading] = useState(false);
   const [complaintError, setComplaintError] = useState<string | null>(null);
   const [complaintFormat, setComplaintFormat] = useState<"brief" | "detailed" | null>(null);
+  const [replyOcrLoading, setReplyOcrLoading] = useState(false);
+  const [replyOcrError, setReplyOcrError] = useState<string | null>(null);
+  const replyFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -163,6 +166,26 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
   const resolvedTiming: string =
     propTiming || v2Data?.timing || "unknown";
   const isPreContract = resolvedTiming === "pre_contract";
+
+  async function handleReplyOcr(file: File) {
+    setReplyOcrError(null);
+    setReplyOcrLoading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/extract-text", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) {
+        setReplyOcrError(data.error ?? "読み取りに失敗しました");
+        return;
+      }
+      setAgentReply(data.text);
+    } catch {
+      setReplyOcrError("通信エラーが発生しました");
+    } finally {
+      setReplyOcrLoading(false);
+    }
+  }
 
   async function handleGenerateFollowup(type: "competitive" | "evidence") {
     if (!agentReply.trim() || !emailText) return;
@@ -380,6 +403,47 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
             <p className="text-xs text-slate-500 mt-0.5">返信内容を貼り付けて、次のメールを生成します</p>
           </div>
           <div className="px-4 py-4 space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => replyFileRef.current?.click()}
+                  disabled={replyOcrLoading}
+                  className="inline-flex items-center gap-1.5 text-xs text-slate-600 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  {replyOcrLoading ? (
+                    <>
+                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      読み取り中...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                      </svg>
+                      返信を画像/PDFから読み取る
+                    </>
+                  )}
+                </button>
+                <input
+                  ref={replyFileRef}
+                  type="file"
+                  accept="image/*,.pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleReplyOcr(file);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+              {replyOcrError && (
+                <p className="text-xs text-red-600">{replyOcrError}</p>
+              )}
+            </div>
             <textarea
               value={agentReply}
               onChange={(e) => setAgentReply(e.target.value)}
