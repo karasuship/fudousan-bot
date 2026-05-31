@@ -39,12 +39,13 @@ const STEP_ORDER: Step[] = ["situation", "fees", "fee_detail", "timeline", "agen
 interface Props {
   /** FlowRootで「署名した・まだ支払っていない」を選んだ場合に渡す */
   initialStage?: PostContractStage;
+  initialFees?: FeeEntry[];
   onChange: (input: DiagnosisInput2) => void;
   onSubmit?: () => void;
   isLoading?: boolean;
 }
 
-export default function PostContractFlow({ initialStage, onChange, onSubmit = () => {}, isLoading = false }: Props) {
+export default function PostContractFlow({ initialStage, initialFees, onChange, onSubmit = () => {}, isLoading = false }: Props) {
   const timing = "post_contract" as const;
 
   const [step, setStep] = useState<Step>("situation");
@@ -58,7 +59,7 @@ export default function PostContractFlow({ initialStage, onChange, onSubmit = ()
   const [docBeforePayment, setDocBeforePayment] = useState<DocBeforePayment | "">("");
 
   // STEP: 費目と金額
-  const [fees, setFees] = useState<FeeEntry[]>([]);
+  const [fees, setFees] = useState<FeeEntry[]>(() => initialFees ?? []);
   const [monthlyRentStr, setMonthlyRentStr] = useState("");
   const [totalAmountStr, setTotalAmountStr] = useState("");
 

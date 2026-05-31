@@ -65,16 +65,17 @@ function createPreContractFeeEntry(feeId: FeeId2): FeeEntry {
 }
 
 interface Props {
+  initialFees?: FeeEntry[];
   onChange: (input: DiagnosisInput2) => void;
   onSubmit?: () => void;
   isLoading?: boolean;
 }
 
-export default function PreContractFlow({ onChange, onSubmit = () => {}, isLoading = false }: Props) {
+export default function PreContractFlow({ initialFees, onChange, onSubmit = () => {}, isLoading = false }: Props) {
   const [step, setStep] = useState<Step>("context");
   const [stepHistory, setStepHistory] = useState<Step[]>([]);
   const [context, setContext] = useState<Partial<PreContractContext>>({});
-  const [fees, setFees] = useState<FeeEntry[]>([]);
+  const [fees, setFees] = useState<FeeEntry[]>(() => initialFees ?? []);
 
   function goTo(next: Step) {
     setStepHistory((prev) => [...prev, step]);

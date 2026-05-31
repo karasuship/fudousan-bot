@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { DiagnosisInput2 } from "@/lib/types_v2";
+import type { DiagnosisInput2, FeeEntry } from "@/lib/types_v2";
 import PreContractFlow from "./PreContractFlow";
 import PostContractFlow from "./PostContractFlow";
 
@@ -14,12 +14,13 @@ const CHOICE_LABEL: Record<RootChoice, string> = {
 };
 
 interface Props {
+  initialFees?: FeeEntry[];
   onChange: (input: DiagnosisInput2 | null) => void;
   onSubmit?: () => void;
   isLoading?: boolean;
 }
 
-export default function FlowRoot({ onChange, onSubmit = () => {}, isLoading = false }: Props) {
+export default function FlowRoot({ initialFees, onChange, onSubmit = () => {}, isLoading = false }: Props) {
   const [choice, setChoice] = useState<RootChoice | "">("");
 
   function selectChoice(next: RootChoice) {
@@ -73,13 +74,14 @@ export default function FlowRoot({ onChange, onSubmit = () => {}, isLoading = fa
 
       {/* 契約前フロー */}
       {choice === "pre" && (
-        <PreContractFlow onChange={(input) => onChange(input)} onSubmit={onSubmit} isLoading={isLoading} />
+        <PreContractFlow initialFees={initialFees} onChange={(input) => onChange(input)} onSubmit={onSubmit} isLoading={isLoading} />
       )}
 
       {/* 契約後フロー（署名済み・支払前：stage固定） */}
       {choice === "pre_payment" && (
         <PostContractFlow
           initialStage="pre_payment"
+          initialFees={initialFees}
           onChange={(input) => onChange(input)}
           onSubmit={onSubmit}
           isLoading={isLoading}
@@ -88,7 +90,7 @@ export default function FlowRoot({ onChange, onSubmit = () => {}, isLoading = fa
 
       {/* 契約後フロー（署名・支払い済み：stage内部決定） */}
       {choice === "post" && (
-        <PostContractFlow onChange={(input) => onChange(input)} onSubmit={onSubmit} isLoading={isLoading} />
+        <PostContractFlow initialFees={initialFees} onChange={(input) => onChange(input)} onSubmit={onSubmit} isLoading={isLoading} />
       )}
     </div>
   );

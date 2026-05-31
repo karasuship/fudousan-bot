@@ -1,16 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import type { DiagnosisInput2, DiagnosisResult2 } from "@/lib/types_v2";
+import type { DiagnosisInput2, DiagnosisResult2, FeeEntry } from "@/lib/types_v2";
 import FlowRoot from "./diagnosis/FlowRoot";
 import DiagnosisResultV2 from "./DiagnosisResultV2";
 import PreContractResult from "./PreContractResult";
+import FeeExtractor from "./FeeExtractor";
 
 export default function DiagnosisFormV2() {
   const [v2Input, setV2Input] = useState<DiagnosisInput2 | null>(null);
   const [v2Result, setV2Result] = useState<DiagnosisResult2 | null>(null);
   const [v2Loading, setV2Loading] = useState(false);
   const [v2Error, setV2Error] = useState<string | null>(null);
+  const [extractedFees, setExtractedFees] = useState<FeeEntry[]>([]);
+  const [flowKey, setFlowKey] = useState(0);
 
   function handleChange(input: DiagnosisInput2 | null) {
     setV2Input(input);
@@ -49,9 +52,19 @@ export default function DiagnosisFormV2() {
     }
   }
 
+  function handleExtract(fees: FeeEntry[]) {
+    setExtractedFees(fees);
+    setFlowKey((k) => k + 1);
+    setV2Result(null);
+    setV2Error(null);
+  }
+
   return (
-    <div>
-      <FlowRoot onChange={handleChange} onSubmit={handleV2Submit} isLoading={v2Loading} />
+    <div className="space-y-4">
+      {!v2Result && (
+        <FeeExtractor onExtract={handleExtract} />
+      )}
+      <FlowRoot key={flowKey} initialFees={extractedFees} onChange={handleChange} onSubmit={handleV2Submit} isLoading={v2Loading} />
 
       {v2Error && (
         <div className="mt-4 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
