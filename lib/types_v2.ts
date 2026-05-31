@@ -31,9 +31,14 @@ export type FeeId2 =
   | "fire_insurance"  // 火災保険料
   | "key_money"       // 礼金
   | "unknown_label"   // 名前がよくわからない費用
-  | "label_mismatch"  // 書類によって費用の名前が違う
-  | "entity_mismatch" // 請求した会社と領収書の会社が違う
-  | "special_clause"; // 特約・特記事項
+  | "label_mismatch"     // 書類によって費用の名前が違う
+  | "entity_mismatch"    // 請求した会社と領収書の会社が違う
+  | "special_clause"     // 特約・特記事項
+  | "deposit_advance"    // 申込金・預り金・手付金
+  | "pack_fee"           // パック料金
+  | "short_term_penalty" // 短期解約違約金（将来費用）
+  | "renewal_fee"        // 更新料（将来費用）
+  | "guarantor_renewal"; // 保証会社更新料（将来費用）
 
 export const FEE_LABEL: Record<FeeId2, string> = {
   agency_fee: "仲介手数料",
@@ -49,6 +54,11 @@ export const FEE_LABEL: Record<FeeId2, string> = {
   label_mismatch: "書類によって費用の名前が違う",
   entity_mismatch: "請求した会社と領収書の会社が違う",
   special_clause: "特約・特記事項",
+  deposit_advance: "申込金・預り金",
+  pack_fee: "パック料金",
+  short_term_penalty: "短期解約違約金",
+  renewal_fee: "更新料",
+  guarantor_renewal: "保証会社更新料",
 };
 
 // ─── 説明の3層チェック ───────────────────────────────────────────────────────
@@ -205,6 +215,11 @@ export interface KeyMoneyDetail {
 export interface PreContractDetail {
   kind: "pre_contract";  // 契約前用であることの識別子
   feeId: string;
+  explanationStatus?:
+    | "mandatory"      // 必須・絶対必要と言われた
+    | "optional_told"  // 任意と説明された
+    | "not_explained"  // 特に説明がなかった
+    | "not_asked";     // まだ聞いていない・わからない
 }
 
 export type FeeDetail =
@@ -298,6 +313,10 @@ export interface PreContractContext {
   hasGuarantor?: "yes" | "no" | null;
   // yes: 連帯保証人を立てる予定
   // no:  立てない・保証会社のみ
+  otherCompanyConfirmed?:
+    | "confirmed_same"  // 他社でも扱っていることを確認済み
+    | "not_checked"     // まだ確認していない
+    | "exclusive";      // 専任物件・他社では扱っていない
 }
 
 // ─── 診断入力（メイン） ──────────────────────────────────────────────────────
@@ -326,6 +345,9 @@ export interface DiagnosisInput2 {
 
   /** 契約前フローのコンテキスト（契約前のみ） */
   preContractContext?: PreContractContext;
+
+  /** 将来費用エントリ（契約前フローで確認した将来負担） */
+  futureCosts?: FutureCostEntry[];
 
   /** メールトーン */
   emailTone: "polite" | "firm" | "factual";
@@ -410,6 +432,9 @@ export interface DiagnosisResult2 {
   /** フリーレント転換の目安金額 */
   freeRentEstimate: number | null;
 
+  /** 将来費用の警告リスト */
+  futureCostWarnings?: FutureCostEntry[];
+
   /** 1通目メールの構造（有料課金後に使用） */
   emailStructure: {
     yesNoQuestions: string[];
@@ -433,4 +458,13 @@ export interface PreContractEstimate {
   items: PreContractAdjustment[];
   totalMin: number;
   totalMax: number;
+}
+
+// ─── 将来費用エントリ ────────────────────────────────────────────────────────
+
+export interface FutureCostEntry {
+  feeId: string;
+  label: string;
+  amount?: number;
+  note?: string;
 }
