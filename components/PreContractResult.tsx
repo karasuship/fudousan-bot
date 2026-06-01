@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type {
   DiagnosisResult2,
   FeeEntry,
@@ -8,6 +9,7 @@ import type {
   PreContractEstimate,
   IssueStrategy,
 } from "@/lib/types_v2";
+import { getFeeContent } from "@/lib/feeContent";
 
 interface Props {
   result: DiagnosisResult2;
@@ -163,6 +165,7 @@ export default function PreContractResult({ result, fees, preContractContext, on
                 {matched.map((s) => {
                   const amount = amountMap.get(s.feeId);
                   const diff = DIFFICULTY[s.strategy];
+                  const content = getFeeContent(s.feeId);
                   return (
                     <div key={s.feeId} className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
@@ -178,6 +181,14 @@ export default function PreContractResult({ result, fees, preContractContext, on
                           </div>
                         )}
                         <p className={`text-xs leading-relaxed ${group.header}`}>{s.reason}</p>
+                        {content && (
+                          <Link
+                            href={`/fees/${content.slug}`}
+                            className="text-xs text-blue-500 hover:text-blue-700 hover:underline"
+                          >
+                            詳しく見る →
+                          </Link>
+                        )}
                       </div>
                       {amount != null && amount > 0 && (
                         <span className={`text-xs font-semibold shrink-0 ${group.header}`}>
