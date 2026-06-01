@@ -31,8 +31,9 @@ export default function HomePage() {
             説明できない費用はありませんか
           </h1>
           <p className="text-slate-300 text-base sm:text-lg leading-relaxed mb-8 max-w-xl">
-            賃貸契約の初期費用には、根拠のない慣行で請求されている費用が含まれていることがあります。
-            制度はあなたを守っています。知らないから、使えていないだけです。
+            初期費用の見積書を入力すると、<br />
+            払わなくていい可能性がある費用を特定して<br />
+            交渉メールを自動で作ります。
           </p>
           <Link
             href="/diagnosis"
@@ -122,7 +123,33 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* ── 4. 最終CTA ── */}
+      {/* ── 4. 費目解説 ── */}
+      <section className="max-w-3xl mx-auto px-4 py-12">
+        <p className="text-xs font-medium text-slate-400 mb-3 tracking-wide uppercase">
+          費目解説
+        </p>
+        <h2 className="text-xl font-bold text-[#0f172a] mb-3">
+          請求された費用の意味を確認する
+        </h2>
+        <p className="text-slate-500 text-sm leading-relaxed mb-6">
+          仲介手数料・礼金・クリーニング費・消毒代など、
+          初期費用に登場する各費目の性質・確認ポイント・
+          交渉の考え方を費目ごとに解説しています。
+        </p>
+        <Link
+          href="/fees"
+          className="inline-flex items-center gap-2 border border-slate-200
+          hover:border-slate-400 text-slate-600 hover:text-slate-800
+          text-sm font-medium px-5 py-2.5 rounded-xl transition-colors"
+        >
+          費目解説を見る
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </Link>
+      </section>
+
+      {/* ── 5. 最終CTA ── */}
       <section className="bg-[#0f172a] px-4 py-16 sm:py-24">
         <div className="max-w-3xl mx-auto text-center">
           <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4">
