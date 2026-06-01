@@ -10,7 +10,6 @@ import type {
   PreContractContext,
   PreContractAdjustment,
   PreContractEstimate,
-  PreContractDetail,
 } from "./types_v2";
 import { FEE_LABEL } from "./types_v2";
 
@@ -765,22 +764,6 @@ export function diagnoseV2(input: DiagnosisInput2): DiagnosisResult2 {
 
 // ─── 契約前診断ロジック ──────────────────────────────────────────────────────
 
-function applyExplanationStatus(
-  issue: Issue2,
-  es: PreContractDetail["explanationStatus"]
-): void {
-  if (!es || es === "not_asked") return;
-  if (es === "mandatory" && issue.strategy === "delete") {
-    issue.severity = "high";
-    issue.axisAText += "。任意サービスを必須と告げることは宅建業法第47条の禁止行為にあたる可能性があります";
-  } else if (es === "not_explained") {
-    issue.severity = "high";
-    issue.axisAText += "。費用の内容・根拠について説明がなかったことは宅建業法第35条の説明義務違反にあたる可能性があります";
-  } else if (es === "optional_told") {
-    issue.strategy = "delete";
-  }
-}
-
 function getSeverity(
   baseSeverity: "high" | "medium",
   context: PreContractContext | undefined
@@ -800,7 +783,6 @@ export function detectPreContractIssues(
     if (!d || !("kind" in d) || d.kind !== "pre_contract") continue;
 
     const label = FEE_LABEL[fee.feeId] ?? fee.feeId;
-    const beforeLen = issues.length;
 
     // ── 仲介手数料 ──
     if (fee.feeId === "agency_fee") {
@@ -923,10 +905,6 @@ export function detectPreContractIssues(
       });
     }
 
-    // explanationStatus による severity/strategy の動的調整
-    for (let i = beforeLen; i < issues.length; i++) {
-      applyExplanationStatus(issues[i], (d as PreContractDetail).explanationStatus);
-    }
   }
 
   // otherCompanyConfirmed による戦略の積極化

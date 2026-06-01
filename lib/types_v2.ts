@@ -215,11 +215,6 @@ export interface KeyMoneyDetail {
 export interface PreContractDetail {
   kind: "pre_contract";  // 契約前用であることの識別子
   feeId: string;
-  explanationStatus?:
-    | "mandatory"      // 必須・絶対必要と言われた
-    | "optional_told"  // 任意と説明された
-    | "not_explained"  // 特に説明がなかった
-    | "not_asked";     // まだ聞いていない・わからない
 }
 
 export type FeeDetail =

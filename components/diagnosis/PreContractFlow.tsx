@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type {
   FeeEntry,
   FeeId2,
@@ -10,46 +10,30 @@ import type {
 import { FEE_LABEL } from "@/lib/types_v2";
 import { FieldBlock, HelpText, Label, RadioGroup, SectionCard } from "./ui";
 import FeeSelect from "./FeeSelect";
-import PreContractContextInput from "./PreContractContextInput";
 
-type Step = "context" | "fees" | "submit";
+type Step = "situation" | "other_company" | "timing" | "fees" | "submit";
+
+const STEP_ORDER: Step[] = ["situation", "other_company", "timing", "fees", "submit"];
 
 const STEP_LABEL: Record<Step, string> = {
-  context: "状況を教えてください",
-  fees:    "費用の項目と金額",
-  submit:  "内容の確認",
+  situation:     "状況を教えてください",
+  other_company: "他社確認",
+  timing:        "契約時期",
+  fees:          "費用の入力",
+  submit:        "内容の確認",
 };
-const STEP_ORDER: Step[] = ["context", "fees", "submit"];
 
-const CONTRACT_MONTH_LABEL: Record<PreContractContext["contractMonth"], string> = {
+const TIMING_LABEL: Record<NonNullable<PreContractContext["contractMonth"]>, string> = {
   busy:   "1〜3月（繁忙期）",
-  normal: "9〜12月（通常期）",
   off:    "4〜8月（閑散期）",
-};
-const APPLICATION_STATUS_LABEL: Record<PreContractContext["applicationStatus"], string> = {
-  before_apply:    "まだ申込んでいない",
-  applied_waiting: "申込済み・審査待ち",
-  approved:        "審査通過・見積もり受領済み",
-};
-const COMPARISON_LABEL: Record<NonNullable<PreContractContext["otherCompanyComparison"]>, string> = {
-  yes:      "している",
-  planning: "比較を予定している",
-  no:       "していない",
+  normal: "9〜12月（通常期）",
 };
 
-function isContextComplete(ctx: Partial<PreContractContext>): boolean {
-  return ctx.monthlyRent != null && ctx.contractMonth != null && ctx.applicationStatus != null;
-}
-
-function toContext(ctx: Partial<PreContractContext>): PreContractContext {
-  return {
-    monthlyRent: ctx.monthlyRent!,
-    contractMonth: ctx.contractMonth!,
-    applicationStatus: ctx.applicationStatus!,
-    otherCompanyComparison: ctx.otherCompanyComparison ?? null,
-    hasGuarantor: ctx.hasGuarantor ?? null,
-  };
-}
+const OTHER_COMPANY_LABEL: Record<NonNullable<PreContractContext["otherCompanyConfirmed"]>, string> = {
+  confirmed_same: "他社でも扱っていることを確認済み",
+  not_checked:    "まだ確認していない",
+  exclusive:      "専任物件・他社では扱っていない",
+};
 
 function createPreContractFeeEntry(feeId: FeeId2): FeeEntry {
   return {
@@ -71,11 +55,24 @@ interface Props {
   isLoading?: boolean;
 }
 
-export default function PreContractFlow({ initialFees, onChange, onSubmit = () => {}, isLoading = false }: Props) {
-  const [step, setStep] = useState<Step>("context");
+export default function PreContractFlow({
+  initialFees,
+  onChange,
+  onSubmit = () => {},
+  isLoading = false,
+}: Props) {
+  const [step, setStep] = useState<Step>("situation");
   const [stepHistory, setStepHistory] = useState<Step[]>([]);
   const [context, setContext] = useState<Partial<PreContractContext>>({});
   const [fees, setFees] = useState<FeeEntry[]>(() => initialFees ?? []);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   function goTo(next: Step) {
     setStepHistory((prev) => [...prev, step]);
@@ -83,10 +80,22 @@ export default function PreContractFlow({ initialFees, onChange, onSubmit = () =
   }
 
   function goBack() {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    setFeedback(null);
     const prev = stepHistory[stepHistory.length - 1];
     if (!prev) return;
     setStepHistory((h) => h.slice(0, -1));
     setStep(prev);
+  }
+
+  function selectWithAutoAdvance(next: Step, update: () => void, feedbackText: string) {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    update();
+    setFeedback(feedbackText);
+    timerRef.current = setTimeout(() => {
+      setFeedback(null);
+      goTo(next);
+    }, 1000);
   }
 
   function addFee(feeId: FeeId2) {
@@ -105,6 +114,18 @@ export default function PreContractFlow({ initialFees, onChange, onSubmit = () =
   }
 
   function buildInput(): DiagnosisInput2 {
+    const ctx: PreContractContext | undefined =
+      context.applicationStatus != null && context.contractMonth != null
+        ? {
+            monthlyRent: context.monthlyRent ?? 0,
+            contractMonth: context.contractMonth,
+            applicationStatus: context.applicationStatus,
+            otherCompanyComparison: null,
+            otherCompanyConfirmed: context.otherCompanyConfirmed,
+            hasGuarantor: context.hasGuarantor ?? null,
+          }
+        : undefined;
+
     return {
       timing: "pre_contract",
       stage: "pre_sign",
@@ -113,7 +134,7 @@ export default function PreContractFlow({ initialFees, onChange, onSubmit = () =
       fees,
       timeline: [],
       agentResponse: null,
-      preContractContext: isContextComplete(context) ? toContext(context) : undefined,
+      preContractContext: ctx,
       emailTone: "polite",
     };
   }
@@ -125,7 +146,6 @@ export default function PreContractFlow({ initialFees, onChange, onSubmit = () =
 
   const stepIdx = STEP_ORDER.indexOf(step);
   const progressPct = ((stepIdx + 1) / STEP_ORDER.length) * 100;
-  const contextComplete = isContextComplete(context);
 
   return (
     <div className="space-y-5">
@@ -141,22 +161,178 @@ export default function PreContractFlow({ initialFees, onChange, onSubmit = () =
         <span className="text-xs text-slate-400 whitespace-nowrap">{STEP_LABEL[step]}</span>
       </div>
 
-      {/* ── STEP: context ── */}
-      {step === "context" && (
+      {/* ── STEP: situation ── */}
+      {step === "situation" && (
         <div className="space-y-4">
-          <PreContractContextInput value={context} onChange={setContext} />
+          <div>
+            <h2 className="text-base font-semibold text-slate-800">物件との今の状況を教えてください</h2>
+            <p className="text-sm text-slate-500 mt-1">一番近いものを選んでください</p>
+          </div>
+
+          {feedback ? (
+            <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 text-sm text-blue-800 text-center">
+              {feedback}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {[
+                {
+                  value: "before_apply" as const,
+                  label: "見積書を見て検討中（まだ申込んでいない）",
+                  description: "内見後や問い合わせ段階で費用をもらった状態です",
+                  feedback: "今が最も交渉しやすい状態です。費目の削除・変更を直接交渉できます",
+                },
+                {
+                  value: "applied_waiting" as const,
+                  label: "申込済み・審査中または審査通過（署名・入金はまだ）",
+                  description: "申込書を提出し、審査結果を待っているまたは通過した状態です",
+                  feedback: "署名前なら交渉できます。業者もあなたに入居してほしい状況です",
+                },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() =>
+                    selectWithAutoAdvance(
+                      "other_company",
+                      () => setContext((prev) => ({ ...prev, applicationStatus: opt.value })),
+                      opt.feedback
+                    )
+                  }
+                  className="w-full text-left border border-slate-200 rounded-xl p-4 hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                >
+                  <p className="text-sm font-medium text-slate-800">{opt.label}</p>
+                  <p className="text-xs text-slate-500 mt-1">{opt.description}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── STEP: other_company ── */}
+      {step === "other_company" && (
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-slate-800">同じ物件を他の不動産会社でも扱っているか確認しましたか？</h2>
+            <p className="text-sm text-slate-500 mt-1">
+              同じ物件でも仲介する会社によって初期費用が変わることがあります。
+              これが最も強力な交渉材料になります
+            </p>
+          </div>
+
+          {feedback ? (
+            <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 text-sm text-blue-800 text-center">
+              {feedback}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {[
+                {
+                  value: "confirmed_same" as const,
+                  label: "他社でも扱っていることを確認済み",
+                  feedback: "強力な交渉材料があります。メールに反映します",
+                },
+                {
+                  value: "not_checked" as const,
+                  label: "まだ確認していない",
+                  feedback: "SUUMOやHOME'Sで同じ物件名を検索してみてください",
+                },
+                {
+                  value: "exclusive" as const,
+                  label: "専任物件・他社では扱っていない",
+                  feedback: "費目ごとの根拠確認で対応します",
+                },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() =>
+                    selectWithAutoAdvance(
+                      "timing",
+                      () => setContext((prev) => ({ ...prev, otherCompanyConfirmed: opt.value })),
+                      opt.feedback
+                    )
+                  }
+                  className="w-full text-left border border-slate-200 rounded-xl p-4 hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                >
+                  <p className="text-sm font-medium text-slate-800">{opt.label}</p>
+                </button>
+              ))}
+            </div>
+          )}
+
           <button
             type="button"
-            onClick={() => goTo("fees")}
-            disabled={!contextComplete}
-            title={!contextComplete ? "家賃・契約予定時期・申込状況を選択してください" : undefined}
-            className={`w-full py-3 rounded-xl text-sm font-medium transition-colors ${
-              contextComplete
-                ? "bg-blue-900 text-white hover:bg-blue-800"
-                : "bg-slate-200 text-slate-400 cursor-not-allowed"
-            }`}
+            onClick={goBack}
+            className="px-4 py-2 text-sm text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50"
           >
-            次へ →
+            ← 戻る
+          </button>
+        </div>
+      )}
+
+      {/* ── STEP: timing ── */}
+      {step === "timing" && (
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-base font-semibold text-slate-800">契約・入居の予定時期はいつですか</h2>
+            <p className="text-sm text-slate-500 mt-1">時期によって交渉のしやすさが変わります</p>
+          </div>
+
+          {feedback ? (
+            <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 text-sm text-blue-800 text-center">
+              {feedback}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {[
+                {
+                  value: "busy" as const,
+                  label: "1〜3月（繁忙期）",
+                  description: "引越しが集中する時期です",
+                  feedback: "繁忙期は交渉が通りにくい時期です。削除より総額調整を狙いましょう",
+                },
+                {
+                  value: "off" as const,
+                  label: "4〜8月（閑散期）",
+                  description: "引越しが少ない時期です",
+                  feedback: "閑散期は最も交渉が通りやすい時期です。削除・フリーレントどちらも狙えます",
+                },
+                {
+                  value: "normal" as const,
+                  label: "9〜12月（通常期）",
+                  description: null,
+                  feedback: "標準的な交渉環境です",
+                },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() =>
+                    selectWithAutoAdvance(
+                      "fees",
+                      () => setContext((prev) => ({ ...prev, contractMonth: opt.value })),
+                      opt.feedback
+                    )
+                  }
+                  className="w-full text-left border border-slate-200 rounded-xl p-4 hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                >
+                  <p className="text-sm font-medium text-slate-800">{opt.label}</p>
+                  {opt.description && (
+                    <p className="text-xs text-slate-500 mt-1">{opt.description}</p>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={goBack}
+            className="px-4 py-2 text-sm text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50"
+          >
+            ← 戻る
           </button>
         </div>
       )}
@@ -164,6 +340,28 @@ export default function PreContractFlow({ initialFees, onChange, onSubmit = () =
       {/* ── STEP: fees ── */}
       {step === "fees" && (
         <div className="space-y-4">
+          <SectionCard>
+            <FieldBlock>
+              <Label>月額家賃（任意）</Label>
+              <HelpText>調整見込み額の計算に使います</HelpText>
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="number"
+                  value={context.monthlyRent ?? ""}
+                  onChange={(e) =>
+                    setContext((prev) => ({
+                      ...prev,
+                      monthlyRent: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                    }))
+                  }
+                  placeholder="例: 80000"
+                  className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 w-40"
+                />
+                <span className="text-xs text-slate-400">円</span>
+              </div>
+            </FieldBlock>
+          </SectionCard>
+
           <SectionCard>
             <FieldBlock>
               <Label>請求されている費用を選んでください</Label>
@@ -211,7 +409,6 @@ export default function PreContractFlow({ initialFees, onChange, onSubmit = () =
             </SectionCard>
           )}
 
-          {/* Q5：連帯保証人（保証会社費用が含まれる場合のみ・任意） */}
           {fees.some((f) => f.feeId === "guarantor") && (
             <SectionCard>
               <FieldBlock>
@@ -257,31 +454,31 @@ export default function PreContractFlow({ initialFees, onChange, onSubmit = () =
       {step === "submit" && (
         <div className="space-y-4">
 
-          {/* サマリー：コンテキスト */}
           <SectionCard>
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs font-semibold text-slate-600">状況</p>
               <button
                 type="button"
-                onClick={() => goTo("context")}
+                onClick={() => goTo("situation")}
                 className="text-xs text-blue-700 hover:underline"
               >
                 変更する
               </button>
             </div>
             <div className="space-y-1 text-xs text-slate-600">
-              <p>家賃：{context.monthlyRent?.toLocaleString("ja-JP")}円</p>
-              <p>時期：{context.contractMonth ? CONTRACT_MONTH_LABEL[context.contractMonth] : "—"}</p>
-              <p>申込：{context.applicationStatus ? APPLICATION_STATUS_LABEL[context.applicationStatus] : "—"}</p>
-              {context.otherCompanyComparison && (
-                <p>他社比較：{COMPARISON_LABEL[context.otherCompanyComparison]}</p>
+              {context.monthlyRent && (
+                <p>家賃：{context.monthlyRent.toLocaleString("ja-JP")}円</p>
+              )}
+              <p>状況：{context.applicationStatus === "before_apply" ? "検討中（申込前）" : "申込済み・審査中/通過"}</p>
+              <p>時期：{context.contractMonth != null ? TIMING_LABEL[context.contractMonth] : "—"}</p>
+              {context.otherCompanyConfirmed != null && (
+                <p>他社確認：{OTHER_COMPANY_LABEL[context.otherCompanyConfirmed]}</p>
               )}
               {context.hasGuarantor === "yes" && <p>連帯保証人：立てる予定がある</p>}
-              {context.hasGuarantor === "no"  && <p>連帯保証人：立てない（保証会社のみ）</p>}
+              {context.hasGuarantor === "no" && <p>連帯保証人：立てない（保証会社のみ）</p>}
             </div>
           </SectionCard>
 
-          {/* サマリー：費目 */}
           <SectionCard>
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs font-semibold text-slate-600">費用</p>
