@@ -16,6 +16,7 @@ export interface FeeContent {
   slug: string;
   category: string;
   title: string;
+  layer1: string;
   summary: string;
   checkPoints: string[];
   preContractAction: string;
@@ -35,6 +36,7 @@ export const FEE_CONTENT_LIST: FeeContent[] = [
     slug: "brokerage-fee",
     category: "仲介・契約手続系",
     title: "仲介手数料とは？1ヶ月請求されたときに確認すべきこと",
+    layer1: "原則0.5ヶ月。1ヶ月なら根拠を確認できます",
     summary:
       "仲介手数料は、借主からは原則として賃料0.5ヶ月分＋消費税相当額までが基本です。1ヶ月分を請求されている場合、承諾の有効性・他費目との重複・説明の時期を確認できます。",
     checkPoints: [
@@ -120,6 +122,7 @@ export const FEE_CONTENT_LIST: FeeContent[] = [
     slug: "contract-admin-fee",
     category: "仲介・契約手続系",
     title: "契約事務手数料・書類作成費とは？仲介手数料と何が違うのか",
+    layer1: "仲介手数料と重複しがち。削除を求められます",
     summary:
       "仲介手数料を払っているなら、契約書の作成や契約手続は通常その中に含まれます。別に契約事務手数料や書類作成費を請求されている場合は、同じ作業に重複して払っていないか確認しましょう。",
     checkPoints: [
@@ -205,6 +208,7 @@ export const FEE_CONTENT_LIST: FeeContent[] = [
     slug: "key-exchange",
     category: "入居準備系",
     title: "鍵交換代とは？借主が払う前に確認すべきこと",
+    layer1: "本来は貸主負担。借主負担の根拠を確認できます",
     summary:
       "鍵交換は、国交省のガイドラインでは入居者の入れ替わりに伴う物件管理上の問題として貸主負担が妥当とされています。借主負担で請求されている場合は、なぜ借主負担なのか・本当に交換されるのか・どの鍵にいくらで交換するのかを確認しましょう。",
     checkPoints: [
@@ -286,10 +290,11 @@ export const FEE_CONTENT_LIST: FeeContent[] = [
     ],
   },
   {
-    feeId: "cleaning_fee",
+    feeId: "cleaning",
     slug: "cleaning-fee",
     category: "入居準備系",
     title: "クリーニング費とは？敷金・退去時請求とあわせて確認すべきこと",
+    layer1: "何の清掃か次第。貸主負担にできる場合があります",
     summary:
       "クリーニング費は名前だけでは判断できません。入居前の清掃費なのか、退去時の清掃費の前払いなのか、敷金の代わりに返ってこない費用として取られていないかを確認しましょう。",
     checkPoints: [
@@ -376,10 +381,11 @@ export const FEE_CONTENT_LIST: FeeContent[] = [
     ],
   },
   {
-    feeId: "disinfection_fee",
+    feeId: "disinfection",
     slug: "disinfection-fee",
     category: "入居準備系",
     title: "消毒・抗菌施工費とは？本当に必要か確認すべきこと",
+    layer1: "任意サービスが多い。根拠なければ外せる場合あり",
     summary:
       "消毒・抗菌施工費は部屋を借りるために当然必要な費用ではありません。まず「任意ですか？外せますか？」と確認しましょう。必須と言われた場合は根拠を確認できます。",
     checkPoints: [
@@ -462,6 +468,7 @@ export const FEE_CONTENT_LIST: FeeContent[] = [
     slug: "support-24h",
     category: "保険・保証・サポート系",
     title: "24時間サポートは必要？火災保険との違いと外せるか確認するポイント",
+    layer1: "任意サービスが多い。保険と重複なら見直せます",
     summary: "24時間サポートは部屋を借りるために当然必要な費用ではありません。特に火災保険の付帯サービスと内容が重複していないかを確認しましょう。任意なら外せる可能性があります。",
     checkPoints: [
       "任意か必須か",
@@ -538,6 +545,7 @@ export const FEE_CONTENT_LIST: FeeContent[] = [
     slug: "fire-insurance",
     category: "保険・保証・サポート系",
     title: "火災保険料とは？賃貸で自分で選べるか確認すべきこと",
+    layer1: "自分で選べる場合あり。指定より安くなることも",
     summary:
       "賃貸契約で火災保険への加入を求められること自体は一般的です。ただし、どの保険会社・プランに加入するかは原則として借主が選べます。指定保険が相場より高い場合は自分で選べるか確認しましょう。",
     checkPoints: [
@@ -611,10 +619,11 @@ export const FEE_CONTENT_LIST: FeeContent[] = [
     ],
   },
   {
-    feeId: "gift_money",
+    feeId: "key_money",
     slug: "gift-money",
     category: "一時金・礼金・敷金系",
     title: "礼金は交渉できる？返ってこない一時金を払う前に確認するポイント",
+    layer1: "法的義務なし。減額・フリーレント転換を交渉できます",
     summary:
       "礼金は法律で必ず払うと決められた費用ではありません。返ってこない一時金として契約条件に設定されている費用です。契約前であれば減額・削除・フリーレントへの転換を相談できる余地があります。",
     checkPoints: [
@@ -692,10 +701,11 @@ export const FEE_CONTENT_LIST: FeeContent[] = [
     ],
   },
   {
-    feeId: "guarantee_fee",
+    feeId: "guarantor",
     slug: "guarantee-fee",
     category: "保険・保証・サポート系",
     title: "保証会社費用とは？初回だけじゃない総コストの確認ポイント",
+    layer1: "外しにくいが継続費用の総額を確認すべき費目",
     summary:
       "保証会社費用は借主を守る保険ではありません。主に貸主の家賃回収リスクを下げるための仕組みです。払うかどうかより、初回・月額・年額・更新時まで含めた総額でいくら払うのかを確認しましょう。",
     checkPoints: [
@@ -779,6 +789,7 @@ export const FEE_CONTENT_LIST: FeeContent[] = [
     slug: "deposit-advance",
     category: "一時金・礼金・敷金系",
     title: "申込金・預り金とは？契約前に払うお金を確認するポイント",
+    layer1: "返ってくるお金のはず。返金条件を先に確認",
     summary:
       "申込金・預り金は契約前に払うからこそ注意が必要です。払う前に「返ってくるのか」「何に充当されるのか」「キャンセル時の扱いが書面で残っているか」を確認しましょう。契約成立前の申込み撤回では、宅建業者は預り金の返還を拒むことができません。",
     checkPoints: [
@@ -856,10 +867,11 @@ export const FEE_CONTENT_LIST: FeeContent[] = [
     ],
   },
   {
-    feeId: "early_termination_fee",
+    feeId: "short_term_penalty",
     slug: "early-termination-fee",
     category: "契約条件・違約金系",
     title: "短期解約違約金・フリーレント違約金とは？「今安い」契約の裏にある将来負担",
+    layer1: "今は払わないが早期退去で発生。契約前に確認",
     summary:
       "短期解約違約金・フリーレント違約金は入居時には払わないため見落としやすい費用です。契約時点で「早く退去したら払うお金」として決まっています。フリーレントや初期費用割引がある場合は、あとで取り返される条件が付いていないかを確認しましょう。",
     checkPoints: [
@@ -947,6 +959,7 @@ export const FEE_CONTENT_LIST: FeeContent[] = [
     slug: "security-deposit",
     category: "一時金・礼金・敷金系",
     title: "敷金とは？返ってくるお金の仕組みと退去時の確認ポイント",
+    layer1: "返ってくるお金。退去時に何が引かれるか確認",
     summary:
       "敷金は払って終わりの費用ではありません。未払い家賃や借主負担の原状回復費用があれば差し引かれますが、残りは返還されるお金です。何が差し引かれるのか・通常損耗まで借主負担にされていないか・精算書の内訳が出ているかを確認しましょう。",
     checkPoints: [
