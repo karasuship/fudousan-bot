@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import type {
   FeeEntry,
   FeeId2,
@@ -66,13 +66,7 @@ export default function PreContractFlow({
   const [context, setContext] = useState<Partial<PreContractContext>>({});
   const [fees, setFees] = useState<FeeEntry[]>(() => initialFees ?? []);
   const [feedback, setFeedback] = useState<string | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    };
-  }, []);
+  const [nextStep, setNextStep] = useState<Step | null>(null);
 
   function goTo(next: Step) {
     setStepHistory((prev) => [...prev, step]);
@@ -80,22 +74,18 @@ export default function PreContractFlow({
   }
 
   function goBack() {
-    if (timerRef.current) clearTimeout(timerRef.current);
     setFeedback(null);
+    setNextStep(null);
     const prev = stepHistory[stepHistory.length - 1];
     if (!prev) return;
     setStepHistory((h) => h.slice(0, -1));
     setStep(prev);
   }
 
-  function selectWithAutoAdvance(next: Step, update: () => void, feedbackText: string) {
-    if (timerRef.current) clearTimeout(timerRef.current);
+  function selectWithFeedback(next: Step, update: () => void, feedbackText: string) {
     update();
     setFeedback(feedbackText);
-    timerRef.current = setTimeout(() => {
-      setFeedback(null);
-      goTo(next);
-    }, 1000);
+    setNextStep(next);
   }
 
   function addFee(feeId: FeeId2) {
@@ -170,8 +160,21 @@ export default function PreContractFlow({
           </div>
 
           {feedback ? (
-            <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 text-sm text-blue-800 text-center">
-              {feedback}
+            <div className="space-y-3">
+              <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 text-sm text-blue-800 text-center">
+                {feedback}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setFeedback(null);
+                  setNextStep(null);
+                  if (nextStep) goTo(nextStep);
+                }}
+                className="w-full py-3 rounded-xl text-sm font-medium bg-blue-900 text-white hover:bg-blue-800 transition-colors"
+              >
+                次へ →
+              </button>
             </div>
           ) : (
             <div className="space-y-3">
@@ -193,7 +196,7 @@ export default function PreContractFlow({
                   key={opt.value}
                   type="button"
                   onClick={() =>
-                    selectWithAutoAdvance(
+                    selectWithFeedback(
                       "other_company",
                       () => setContext((prev) => ({ ...prev, applicationStatus: opt.value })),
                       opt.feedback
@@ -222,8 +225,21 @@ export default function PreContractFlow({
           </div>
 
           {feedback ? (
-            <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 text-sm text-blue-800 text-center">
-              {feedback}
+            <div className="space-y-3">
+              <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 text-sm text-blue-800 text-center">
+                {feedback}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setFeedback(null);
+                  setNextStep(null);
+                  if (nextStep) goTo(nextStep);
+                }}
+                className="w-full py-3 rounded-xl text-sm font-medium bg-blue-900 text-white hover:bg-blue-800 transition-colors"
+              >
+                次へ →
+              </button>
             </div>
           ) : (
             <div className="space-y-3">
@@ -248,7 +264,7 @@ export default function PreContractFlow({
                   key={opt.value}
                   type="button"
                   onClick={() =>
-                    selectWithAutoAdvance(
+                    selectWithFeedback(
                       "timing",
                       () => setContext((prev) => ({ ...prev, otherCompanyConfirmed: opt.value })),
                       opt.feedback
@@ -281,8 +297,21 @@ export default function PreContractFlow({
           </div>
 
           {feedback ? (
-            <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 text-sm text-blue-800 text-center">
-              {feedback}
+            <div className="space-y-3">
+              <div className="rounded-xl bg-blue-50 border border-blue-200 p-4 text-sm text-blue-800 text-center">
+                {feedback}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setFeedback(null);
+                  setNextStep(null);
+                  if (nextStep) goTo(nextStep);
+                }}
+                className="w-full py-3 rounded-xl text-sm font-medium bg-blue-900 text-white hover:bg-blue-800 transition-colors"
+              >
+                次へ →
+              </button>
             </div>
           ) : (
             <div className="space-y-3">
@@ -310,7 +339,7 @@ export default function PreContractFlow({
                   key={opt.value}
                   type="button"
                   onClick={() =>
-                    selectWithAutoAdvance(
+                    selectWithFeedback(
                       "fees",
                       () => setContext((prev) => ({ ...prev, contractMonth: opt.value })),
                       opt.feedback
