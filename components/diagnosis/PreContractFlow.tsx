@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import type {
   FeeEntry,
   FeeId2,
@@ -10,6 +11,7 @@ import type {
 import { FEE_LABEL } from "@/lib/types_v2";
 import { FieldBlock, HelpText, Label, RadioGroup, SectionCard } from "./ui";
 import FeeSelect from "./FeeSelect";
+import { getFeeContent } from "@/lib/feeContent";
 
 type Step = "situation" | "other_company" | "timing" | "fees" | "submit";
 
@@ -89,7 +91,11 @@ export default function PreContractFlow({
   }
 
   function addFee(feeId: FeeId2) {
-    setFees((prev) => [...prev, createPreContractFeeEntry(feeId)]);
+    setFees((prev) =>
+      prev.some((f) => f.feeId === feeId)
+        ? prev
+        : [...prev, createPreContractFeeEntry(feeId)]
+    );
   }
 
   function updateFeeAmount(feeId: FeeId2, amount: number | null) {
@@ -396,7 +402,7 @@ export default function PreContractFlow({
               <Label>請求されている費用を選んでください</Label>
               <HelpText>複数選択できます</HelpText>
               <div className="mt-2">
-                <FeeSelect selected={fees.map((f) => f.feeId)} onAdd={addFee} />
+                <FeeSelect selected={[]} onAdd={addFee} />
               </div>
             </FieldBlock>
           </SectionCard>
@@ -405,34 +411,62 @@ export default function PreContractFlow({
             <SectionCard>
               <FieldBlock>
                 <Label>各費目の金額（任意）</Label>
-                <div className="space-y-2 mt-1">
-                  {fees.map((fee) => (
-                    <div key={fee.feeId} className="flex items-center gap-2">
-                      <span className="text-sm text-slate-700 w-32 shrink-0">
-                        {FEE_LABEL[fee.feeId]}
-                      </span>
-                      <input
-                        type="number"
-                        value={fee.amount ?? ""}
-                        onChange={(e) =>
-                          updateFeeAmount(
-                            fee.feeId,
-                            e.target.value ? parseInt(e.target.value, 10) : null
-                          )
-                        }
-                        placeholder="例: 55000"
-                        className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 w-32"
-                      />
-                      <span className="text-xs text-slate-400">円</span>
-                      <button
-                        type="button"
-                        onClick={() => removeFee(fee.feeId)}
-                        className="ml-auto text-xs text-slate-400 hover:text-red-500 transition-colors"
-                      >
-                        削除
-                      </button>
-                    </div>
-                  ))}
+                <div className="space-y-4 mt-1">
+                  {fees.map((fee) => {
+                    const content = getFeeContent(fee.feeId);
+                    return (
+                      <div key={fee.feeId} className="rounded-lg border border-slate-200 p-3 space-y-2">
+                        <p className="text-sm font-medium text-slate-700">
+                          {FEE_LABEL[fee.feeId]}
+                        </p>
+                        {content && (
+                          <>
+                            <p className="text-xs text-slate-500 leading-relaxed">
+                              {content.layer1}
+                            </p>
+                            <ul className="space-y-1">
+                              {content.checkPoints.slice(0, 4).map((point, i) => (
+                                <li key={i} className="text-xs text-slate-600 flex gap-1.5">
+                                  <span className="shrink-0 text-slate-400">・</span>
+                                  <span>{point}</span>
+                                </li>
+                              ))}
+                            </ul>
+                            <div className="text-right">
+                              <Link
+                                href={`/fees/${content.slug}`}
+                                className="text-xs text-blue-500 hover:text-blue-700 hover:underline"
+                              >
+                                詳しく見る →
+                              </Link>
+                            </div>
+                          </>
+                        )}
+                        <div className="flex items-center gap-2 pt-1">
+                          <input
+                            type="number"
+                            value={fee.amount ?? ""}
+                            onChange={(e) =>
+                              updateFeeAmount(
+                                fee.feeId,
+                                e.target.value ? parseInt(e.target.value, 10) : null
+                              )
+                            }
+                            placeholder="例: 55000"
+                            className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-300 w-32"
+                          />
+                          <span className="text-xs text-slate-400">円</span>
+                          <button
+                            type="button"
+                            onClick={() => removeFee(fee.feeId)}
+                            className="ml-auto text-xs text-slate-400 hover:text-red-500 transition-colors"
+                          >
+                            削除
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </FieldBlock>
             </SectionCard>
