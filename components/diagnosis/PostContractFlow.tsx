@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
+import { getFeeContent } from "@/lib/feeContent";
 import type {
   FeeEntry,
   FeeId2,
@@ -313,16 +315,32 @@ export default function PostContractFlow({ initialStage, initialFees, onChange, 
                   {currentFee ? FEE_LABEL[currentFee.feeId] : ""}
                 </strong>
               </p>
-              {currentFee && (
-                <FeeDetailCard
-                  entry={currentFee}
-                  onChange={(entry) => updateFee(currentFeeIndex, entry)}
-                  onRemove={() => {
-                    removeFeeAt(currentFeeIndex);
-                    if (fees.length <= 1) goBack();
-                  }}
-                />
-              )}
+              {currentFee && (() => {
+                const content = getFeeContent(currentFee.feeId);
+                return (
+                  <>
+                    {content && (
+                      <div className="mb-2">
+                        <p className="text-sm text-slate-500 leading-relaxed">{content.layer1}</p>
+                        <Link
+                          href={`/fees/${content.slug}`}
+                          className="text-xs text-blue-500 hover:text-blue-700 hover:underline"
+                        >
+                          詳しく見る →
+                        </Link>
+                      </div>
+                    )}
+                    <FeeDetailCard
+                      entry={currentFee}
+                      onChange={(entry) => updateFee(currentFeeIndex, entry)}
+                      onRemove={() => {
+                        removeFeeAt(currentFeeIndex);
+                        if (fees.length <= 1) goBack();
+                      }}
+                    />
+                  </>
+                );
+              })()}
             </>
           )}
           <div className="flex gap-3">
