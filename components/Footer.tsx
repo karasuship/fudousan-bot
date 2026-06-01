@@ -22,6 +22,9 @@ export default function Footer() {
           <Link href="/contact" className="hover:text-slate-600 transition-colors">
             お問い合わせ
           </Link>
+          <Link href="/fees" className="hover:text-slate-600 transition-colors">
+            費目解説
+          </Link>
           <Link href="/faq" className="hover:text-slate-600 transition-colors">
             よくある質問
           </Link>

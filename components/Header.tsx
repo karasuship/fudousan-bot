@@ -16,6 +16,9 @@ export default function Header() {
           <Link href="/diagnosis" className="hover:text-slate-800 transition-colors">
             診断する
           </Link>
+          <Link href="/fees" className="hover:text-slate-800 transition-colors">
+            費目解説
+          </Link>
           <Link href="/disclaimer" className="hover:text-slate-800 transition-colors">
             免責
           </Link>
