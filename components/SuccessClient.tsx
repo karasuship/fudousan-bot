@@ -22,6 +22,7 @@ interface Props {
   paid: boolean;
   timing?: string;
   stage?: string;
+  stripeCustomerId?: string;
 }
 
 // ─── 業者返答パターン ─────────────────────────────────────────────────────────
@@ -83,7 +84,7 @@ const POST_CONTRACT_FAQS = [
 
 // ─── コンポーネント ───────────────────────────────────────────────────────────
 
-export default function SuccessClient({ paid, timing: propTiming, stage: propStage }: Props) {
+export default function SuccessClient({ paid, timing: propTiming, stage: propStage, stripeCustomerId }: Props) {
   const [v2Data, setV2Data] = useState<V2StoredData | null>(null);
   const [v1Result, setV1Result] = useState<DiagnosisResult | null>(null);
   const [storageError, setStorageError] = useState(false);
@@ -105,6 +106,12 @@ export default function SuccessClient({ paid, timing: propTiming, stage: propSta
   const [replyOcrLoading, setReplyOcrLoading] = useState(false);
   const [replyOcrError, setReplyOcrError] = useState<string | null>(null);
   const replyFileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (stripeCustomerId) {
+      localStorage.setItem("stripe_customer_id", stripeCustomerId);
+    }
+  }, [stripeCustomerId]);
 
   useEffect(() => {
     setMounted(true);

@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import { savePurchase } from "@/lib/redis";
 
 // NOTE: 本番ではWebhookによる非同期確認を推奨。
 // このエンドポイントはMVP向けの同期確認用です。
@@ -27,6 +28,26 @@ export async function GET(request: Request) {
     const stripe = new Stripe(secretKey);
     const session = await stripe.checkout.sessions.retrieve(sessionId);
     const paid = session.payment_status === "paid";
+
+    if (paid && session.customer) {
+      const stripeCustomerId =
+        typeof session.customer === "string"
+          ? session.customer
+          : session.customer.id;
+
+      try {
+        await savePurchase({
+          stripeCustomerId,
+          email: session.customer_details?.email ?? undefined,
+          product: "980",
+          sessionId,
+          createdAt: Date.now(),
+        });
+      } catch (redisErr) {
+        console.error("[verify-checkout-session] Redis 保存エラー:", redisErr);
+      }
+    }
+
     return Response.json({ paid });
   } catch (err) {
     console.error("[verify-checkout-session] Stripe エラー:", err);
